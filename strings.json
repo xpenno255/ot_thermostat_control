@@ -1,0 +1,319 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "OT Thermostat Control",
+        "description": "Choose what to configure.",
+        "menu_options": {
+          "hub": "Global Settings",
+          "room": "Room"
+        }
+      },
+      "hub": {
+        "title": "OT Global Settings",
+        "description": "Configure shared weather and environment settings used by all rooms.",
+        "sections": {
+          "hub_sensors_section": {
+            "name": "Outdoor Sensors"
+          },
+          "hub_weather_section": {
+            "name": "Weather Tuning"
+          },
+          "hub_k_section": {
+            "name": "Correction Gain Adaptation"
+          }
+        },
+        "data": {
+          "weather_entity": "Weather entity",
+          "solar_sensor": "Solar irradiance sensor",
+          "outdoor_temp_sensor": "Outdoor temperature sensor",
+          "outdoor_humidity_sensor": "Outdoor humidity sensor",
+          "wind_speed_sensor": "Wind speed sensor",
+          "apparent_temp_entity": "Apparent temperature sensor",
+          "weather_ref_temp": "Weather severity reference temperature",
+          "weather_scale": "Weather severity scale",
+          "weather_severity_exponent": "Weather severity exponent",
+          "smoothing_enabled": "Smoothing enabled",
+          "advanced_sensors": "Advanced sensors",
+          "gradient_scale": "Gradient scale (°C)",
+          "gradient_exponent": "Gradient exponent"
+        },
+        "data_description": {
+          "weather_entity": "Weather entity providing outdoor conditions for all rooms.",
+          "solar_sensor": "Optional irradiance sensor. If blank, solar gain is estimated from weather conditions.",
+          "outdoor_temp_sensor": "Optional dedicated outdoor temperature sensor. If blank, the weather entity is used.",
+          "outdoor_humidity_sensor": "Optional dedicated outdoor humidity sensor. If blank, the weather entity is used.",
+          "wind_speed_sensor": "Optional dedicated wind speed sensor. If blank, the weather entity is used.",
+          "apparent_temp_entity": "Optional sensor providing apparent/RealFeel temperature. When this drops below the reference temperature, correction gain (k) is boosted for all rooms.",
+          "weather_ref_temp": "Temperature below which weather severity begins to boost k.",
+          "weather_scale": "Range over which severity scales from 0 to 1.",
+          "weather_severity_exponent": "Power curve exponent for severity damping.",
+          "smoothing_enabled": "Apply exponential smoothing to calculated setpoints across all rooms.",
+          "advanced_sensors": "Enable extended diagnostic sensors for every room (MRT detail, coast/rate, weather severity, occupancy). When disabled only core output and basic temperature sensors are created.",
+          "gradient_scale": "In ot_referenced mode: the outdoor temperature difference (below desired OT) at which k reaches its configured room value (k_base). Smaller values = more aggressive reduction on mild days.",
+          "gradient_exponent": "In ot_referenced mode: power curve shape. 1.0 = linear, 1.5 = moderate curve (recommended), 2.0 = slow start then aggressive."
+        }
+      },
+      "room": {
+        "title": "OT Room Configuration",
+        "description": "Configure operative temperature control for a room.",
+        "sections": {
+          "environment_section": {
+            "name": "Environment (MRT)"
+          },
+          "occupancy_section": {
+            "name": "Occupancy"
+          },
+          "comfort_section": {
+            "name": "Comfort"
+          },
+          "advanced_section": {
+            "name": "Advanced"
+          },
+          "window_section": {
+            "name": "Windows & Adjacent Rooms"
+          }
+        },
+        "data": {
+          "name": "Room name",
+          "primary_climate": "Primary climate entity",
+          "backup_climate": "Backup climate entity",
+          "air_temp_sensor": "Air temperature sensor",
+          "room_profile": "Room profile",
+          "orientation": "Window orientation",
+          "occupancy_sensor": "Occupancy sensor",
+          "unoccupied_duration": "Unoccupied duration",
+          "weekday_morning_offset": "Weekday morning offset (06:30–12:00)",
+          "weekday_afternoon_offset": "Weekday afternoon offset (12:00–16:30)",
+          "weekday_evening_offset": "Weekday evening offset (16:30–22:00)",
+          "weekend_morning_offset": "Weekend morning offset (06:30–12:00)",
+          "weekend_afternoon_offset": "Weekend afternoon offset (12:00–16:30)",
+          "weekend_evening_offset": "Weekend evening offset (16:30–22:00)",
+          "k_adaptation_mode": "K adaptation mode",
+          "correction_gain": "Correction gain (k)",
+          "max_setpoint": "Maximum setpoint",
+          "min_setpoint": "Minimum setpoint",
+          "override_duration": "Override duration",
+          "run_interval": "Run interval",
+          "automation_delay": "Automation delay",
+          "coast_cycles": "Coast cycles",
+          "max_step": "Maximum step change",
+          "time_window_enabled": "Enable time window",
+          "time_window_start": "Operating window start",
+          "time_window_end": "Operating window end",
+          "window_sensors": "Window / door sensors",
+          "window_setpoint": "Window-open setpoint",
+          "window_delay": "Window-close delay",
+          "window_open_delay": "Window-open delay",
+          "adjacent_sensors": "Impact adjacent room sensors"
+        },
+        "data_description": {
+          "name": "A friendly name for this room (used as the config entry title).",
+          "primary_climate": "The main climate entity (e.g. ramses_cc zone) whose setpoint will be adjusted.",
+          "backup_climate": "Fallback climate entity used when the primary is unavailable.",
+          "air_temp_sensor": "Optional dedicated air temperature sensor. If blank, the thermostat's built-in sensor is used.",
+          "room_profile": "Describes the room's external wall and window exposure.",
+          "orientation": "Compass direction the main window faces, for solar gain calculation.",
+          "occupancy_sensor": "Optional binary sensor for room occupancy.",
+          "unoccupied_duration": "Minutes the room must be unoccupied before offsets are applied.",
+          "weekday_morning_offset": "Temperature offset when unoccupied on weekday mornings (half is applied to desired OT).",
+          "weekday_afternoon_offset": "Temperature offset when unoccupied on weekday afternoons (half is applied to desired OT).",
+          "weekday_evening_offset": "Temperature offset when unoccupied on weekday evenings (half is applied to desired OT).",
+          "weekend_morning_offset": "Temperature offset when unoccupied on weekend mornings (half is applied to desired OT).",
+          "weekend_afternoon_offset": "Temperature offset when unoccupied on weekend afternoons (half is applied to desired OT).",
+          "weekend_evening_offset": "Temperature offset when unoccupied on weekend evenings (half is applied to desired OT).",
+          "k_adaptation_mode": "How correction gain (k) is scaled by outdoor conditions. 'weather_only' uses RealFeel vs a fixed reference temperature. 'ot_referenced' scales k from zero (when outdoors matches target) up to k_base at gradient_scale below target — eliminating the k floor on mild days.",
+          "correction_gain": "How aggressively the setpoint is corrected (higher = more correction).",
+          "max_setpoint": "Absolute ceiling for the corrected setpoint.",
+          "min_setpoint": "Lowest allowed setpoint.",
+          "override_duration": "How long (in minutes) a manual override lasts before automatic control resumes.",
+          "run_interval": "How often (in minutes) the control loop runs.",
+          "automation_delay": "Seconds to wait before applying setpoint (stagger to avoid bus contention).",
+          "coast_cycles": "Number of cycles to look ahead for coasting down as air approaches the target.",
+          "max_step": "Maximum setpoint change per cycle (rate limiter).",
+          "time_window_enabled": "Restrict control to a daily time window. When disabled, control runs 24/7.",
+          "time_window_start": "Start of the daily operating window.",
+          "time_window_end": "End of the daily operating window.",
+          "window_sensors": "Binary sensors (door/window) that trigger a reduced setpoint when open.",
+          "window_setpoint": "Setpoint applied while any window/door sensor is open.",
+          "window_delay": "Minutes after all sensors close before reverting to the normal setpoint.",
+          "window_open_delay": "Minutes a sensor must be open before the reduced setpoint is applied.",
+          "adjacent_sensors": "When any of these sensors are open, this room pauses OT correction and reverts to the scheduled setpoint rather than the corrected setpoint."
+        }
+      }
+    },
+    "abort": {
+      "hub_already_configured": "Global settings hub is already configured. Use the options flow to modify it."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "OT Thermostat Control",
+        "description": "Adjust settings.",
+        "sections": {
+          "environment_section": {
+            "name": "Environment (MRT)"
+          },
+          "occupancy_section": {
+            "name": "Occupancy"
+          },
+          "comfort_section": {
+            "name": "Comfort"
+          },
+          "advanced_section": {
+            "name": "Advanced"
+          },
+          "hub_sensors_section": {
+            "name": "Outdoor Sensors"
+          },
+          "hub_weather_section": {
+            "name": "Weather Tuning"
+          },
+          "hub_k_section": {
+            "name": "Correction Gain Adaptation"
+          },
+          "window_section": {
+            "name": "Windows & Adjacent Rooms"
+          }
+        },
+        "data": {
+          "name": "Room name",
+          "primary_climate": "Primary climate entity",
+          "backup_climate": "Backup climate entity",
+          "weather_entity": "Weather entity",
+          "air_temp_sensor": "Air temperature sensor",
+          "room_profile": "Room profile",
+          "orientation": "Window orientation",
+          "solar_sensor": "Solar irradiance sensor",
+          "outdoor_temp_sensor": "Outdoor temperature sensor",
+          "outdoor_humidity_sensor": "Outdoor humidity sensor",
+          "wind_speed_sensor": "Wind speed sensor",
+          "apparent_temp_entity": "Apparent temperature sensor",
+          "weather_ref_temp": "Weather severity reference temperature",
+          "weather_scale": "Weather severity scale",
+          "weather_severity_exponent": "Weather severity exponent",
+          "occupancy_sensor": "Occupancy sensor",
+          "unoccupied_duration": "Unoccupied duration",
+          "weekday_morning_offset": "Weekday morning offset (06:30–12:00)",
+          "weekday_afternoon_offset": "Weekday afternoon offset (12:00–16:30)",
+          "weekday_evening_offset": "Weekday evening offset (16:30–22:00)",
+          "weekend_morning_offset": "Weekend morning offset (06:30–12:00)",
+          "weekend_afternoon_offset": "Weekend afternoon offset (12:00–16:30)",
+          "weekend_evening_offset": "Weekend evening offset (16:30–22:00)",
+          "k_adaptation_mode": "K adaptation mode",
+          "correction_gain": "Correction gain (k)",
+          "max_setpoint": "Maximum setpoint",
+          "min_setpoint": "Minimum setpoint",
+          "override_duration": "Override duration",
+          "run_interval": "Run interval",
+          "automation_delay": "Automation delay",
+          "coast_cycles": "Coast cycles",
+          "max_step": "Maximum step change",
+          "smoothing_enabled": "Smoothing enabled",
+          "advanced_sensors": "Advanced sensors",
+          "gradient_scale": "Gradient scale (°C)",
+          "gradient_exponent": "Gradient exponent",
+          "time_window_enabled": "Enable time window",
+          "time_window_start": "Operating window start",
+          "time_window_end": "Operating window end",
+          "window_sensors": "Window / door sensors",
+          "window_setpoint": "Window-open setpoint",
+          "window_delay": "Window-close delay",
+          "window_open_delay": "Window-open delay",
+          "adjacent_sensors": "Impact adjacent room sensors"
+        },
+        "data_description": {
+          "name": "A friendly name for this room (used as the config entry title).",
+          "primary_climate": "The main climate entity (e.g. ramses_cc zone) whose setpoint will be adjusted.",
+          "backup_climate": "Fallback climate entity used when the primary is unavailable.",
+          "weather_entity": "Weather entity providing outdoor conditions for all rooms.",
+          "air_temp_sensor": "Optional dedicated air temperature sensor. If blank, the thermostat's built-in sensor is used.",
+          "room_profile": "Describes the room's external wall and window exposure.",
+          "orientation": "Compass direction the main window faces, for solar gain calculation.",
+          "solar_sensor": "Optional irradiance sensor. If blank, solar gain is estimated from weather conditions.",
+          "outdoor_temp_sensor": "Optional dedicated outdoor temperature sensor. If blank, the weather entity is used.",
+          "outdoor_humidity_sensor": "Optional dedicated outdoor humidity sensor. If blank, the weather entity is used.",
+          "wind_speed_sensor": "Optional dedicated wind speed sensor. If blank, the weather entity is used.",
+          "apparent_temp_entity": "Optional sensor providing apparent/RealFeel temperature.",
+          "weather_ref_temp": "Temperature below which weather severity begins to boost k.",
+          "weather_scale": "Range over which severity scales from 0 to 1.",
+          "weather_severity_exponent": "Power curve exponent for severity damping.",
+          "occupancy_sensor": "Optional binary sensor for room occupancy.",
+          "unoccupied_duration": "Minutes the room must be unoccupied before offsets are applied.",
+          "weekday_morning_offset": "Temperature offset when unoccupied on weekday mornings (half is applied to desired OT).",
+          "weekday_afternoon_offset": "Temperature offset when unoccupied on weekday afternoons (half is applied to desired OT).",
+          "weekday_evening_offset": "Temperature offset when unoccupied on weekday evenings (half is applied to desired OT).",
+          "weekend_morning_offset": "Temperature offset when unoccupied on weekend mornings (half is applied to desired OT).",
+          "weekend_afternoon_offset": "Temperature offset when unoccupied on weekend afternoons (half is applied to desired OT).",
+          "weekend_evening_offset": "Temperature offset when unoccupied on weekend evenings (half is applied to desired OT).",
+          "k_adaptation_mode": "How correction gain (k) is scaled by outdoor conditions. 'weather_only' uses RealFeel vs a fixed reference temperature. 'ot_referenced' scales k from zero (when outdoors matches target) up to k_base at gradient_scale below target — eliminating the k floor on mild days.",
+          "correction_gain": "How aggressively the setpoint is corrected (higher = more correction).",
+          "max_setpoint": "Absolute ceiling for the corrected setpoint.",
+          "min_setpoint": "Lowest allowed setpoint.",
+          "override_duration": "How long (in minutes) a manual override lasts before automatic control resumes.",
+          "run_interval": "How often (in minutes) the control loop runs.",
+          "automation_delay": "Seconds to wait before applying setpoint (stagger to avoid bus contention).",
+          "coast_cycles": "Number of cycles to look ahead for coasting down as air approaches the target.",
+          "max_step": "Maximum setpoint change per cycle (rate limiter).",
+          "smoothing_enabled": "Apply exponential smoothing to the calculated setpoint.",
+          "advanced_sensors": "Enable extended diagnostic sensors for every room (MRT detail, coast/rate, weather severity, occupancy). When disabled only core output and basic temperature sensors are created.",
+          "gradient_scale": "In ot_referenced mode: the outdoor temperature difference (below desired OT) at which k reaches its configured room value (k_base). Smaller values = more aggressive reduction on mild days.",
+          "gradient_exponent": "In ot_referenced mode: power curve shape. 1.0 = linear, 1.5 = moderate curve (recommended), 2.0 = slow start then aggressive.",
+          "time_window_enabled": "Restrict control to a daily time window. When disabled, control runs 24/7.",
+          "time_window_start": "Start of the daily operating window.",
+          "time_window_end": "End of the daily operating window.",
+          "window_sensors": "Binary sensors (door/window) that trigger a reduced setpoint when open.",
+          "window_setpoint": "Setpoint applied while any window/door sensor is open.",
+          "window_delay": "Minutes after all sensors close before reverting to the normal setpoint.",
+          "window_open_delay": "Minutes a sensor must be open before the reduced setpoint is applied.",
+          "adjacent_sensors": "When any of these sensors are open, this room pauses OT correction and reverts to the scheduled setpoint rather than the corrected setpoint."
+        }
+      }
+    }
+  },
+  "selector": {
+    "room_profile": {
+      "options": {
+        "one_wall_large_window": "One wall, large window",
+        "two_wall_large_window": "Two walls, large window",
+        "attic": "Attic",
+        "topfloor_vert_small_window": "Top floor, small window",
+        "topfloor_vert_medium_window": "Top floor, medium window",
+        "topfloor_two_walls_cavity": "Top floor, two walls (cavity)",
+        "topfloor_cold_adjacent": "Top floor, cold adjacent",
+        "two_wall_small_window": "Two walls, small window",
+        "one_wall_small_window": "One wall, small window",
+        "basement": "Basement",
+        "one_wall_cold_adjacent": "One wall, cold adjacent",
+        "corner_cold_adjacent": "Corner, cold adjacent",
+        "interior": "Interior room",
+        "interior_cold_adjacent": "Interior, cold adjacent",
+        "one_wall_medium_window": "One wall, medium window",
+        "two_wall_medium_window": "Two walls, medium window",
+        "conservatory": "Conservatory",
+        "extension_large_glazing": "Extension, large glazing",
+        "three_wall_large_window": "Three walls, large window",
+        "three_wall_two_large_windows": "Three walls, two large windows"
+      }
+    },
+    "orientation": {
+      "options": {
+        "N": "North",
+        "NE": "North-East",
+        "E": "East",
+        "SE": "South-East",
+        "S": "South",
+        "SW": "South-West",
+        "W": "West",
+        "NW": "North-West"
+      }
+    },
+    "k_adaptation_mode": {
+      "options": {
+        "weather_only": "Weather only (existing behaviour)",
+        "ot_referenced": "OT-referenced (scales from zero on mild days)"
+      }
+    }
+  }
+}
