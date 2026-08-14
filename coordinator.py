@@ -691,6 +691,13 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
 
     async def _do_update(self) -> OTCoordinatorData:
         """Inner update logic."""
+        # First cycle after startup/entry reload: no data yet. This cycle
+        # runs during async_config_entry_first_refresh, so it must not
+        # sleep (blocks HA startup) and must not write to the zone (the
+        # staggered automation_delay exists to spread ramses_cc RF writes;
+        # an immediate boot write would bypass that stagger).
+        first_cycle = self.data is None
+
         # 1. Check enabled
         if not self._enabled:
             if self.data is not None:
@@ -753,9 +760,9 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             )
             return self._skipped_data("outside time window")
 
-        # 2. Automation delay
+        # 2. Automation delay (skipped on the first cycle — see above)
         delay = self._config.get(CONF_AUTOMATION_DELAY, DEFAULT_AUTOMATION_DELAY)
-        if delay and delay > 0:
+        if delay and delay > 0 and not first_cycle:
             await asyncio.sleep(delay)
 
         # 3. Active thermostat and air temp
@@ -1019,8 +1026,15 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         # 11c. Adjacent room open check — pause correction, write scheduled setpoint
         adjacent_open = self._is_adjacent_open()
 
-        # 12. Apply override via ramses_cc if not skipped
-        if not result.skipped and self._enabled and self._is_global_enabled():
+        # 12. Apply override via ramses_cc if not skipped.
+        # First cycle only computes (fresh sensor data at boot); the first
+        # zone write waits for the next staggered scheduled cycle.
+        if first_cycle:
+            _LOGGER.debug(
+                "OT %s first cycle: calc only, skipping zone write",
+                self.room_name,
+            )
+        elif not result.skipped and self._enabled and self._is_global_enabled():
             primary = self._config.get(CONF_PRIMARY_CLIMATE, "")
             override_entity = primary if primary else active
             override_duration = int(
