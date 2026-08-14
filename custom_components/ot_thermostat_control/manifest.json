@@ -3,9 +3,9 @@
   "name": "OT Thermostat Control",
   "codeowners": ["@xpenno255"],
   "config_flow": true,
-  "documentation": "https://github.com/xpenno255/ha-ot-thermostat-control",
+  "documentation": "https://github.com/xpenno255/ot_thermostat_control",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/xpenno255/ha-ot-thermostat-control/issues",
+  "issue_tracker": "https://github.com/xpenno255/ot_thermostat_control/issues",
   "requirements": [],
-  "version": "1.11.0"
+  "version": "1.12.0"
 }
