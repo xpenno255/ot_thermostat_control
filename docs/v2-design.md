@@ -1,6 +1,6 @@
 # OT Thermostat Control v2 — design note
 
-Status: draft under review, 2026-09-04. `core/model.py` and `core/geometry.py` are built and tested (§2–§4, §6); coordinator, policy and entities are not.
+Status: 2026-09-04. Built and tested on the `v2` branch: `core/model.py`, `core/geometry.py`, `core/policy.py`, `hub.py`, `coordinator.py` and all entity platforms (52 tests, integration tests under HA 2026.9). Not yet done: config flow for the new options, migration of v1 entries, deployment to the live instance in shadow mode.
 
 ## 1. What v2 claims
 
