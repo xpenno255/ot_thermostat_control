@@ -193,3 +193,9 @@ def test_shadow_still_releases_when_turned_off():
     """Switching a room off while a v1-era override is held should still release it."""
     d = decide(inputs(shadow_mode=True, room_enabled=False, memory=held()))
     assert d.action is Action.RELEASE
+
+
+def test_unknown_schedule_is_never_manual():
+    """Right after a restart the schedule can be missing; a non-matching zone setpoint is not 'manual'."""
+    d = decide(inputs(computed_setpoint=None, zone=ZoneState(19.0, None)))
+    assert d.state is State.NO_DATA

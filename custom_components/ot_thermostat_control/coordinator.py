@@ -191,6 +191,7 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         self._mode: str = str(self._config.get(CONF_MODE, DEFAULT_MODE))
         self._geometry: RoomGeometry | None = None
         self._geometry_error: str | None = None
+        self._retry_cancel = None
         self._tunables: dict[str, float] = {}
         hub_cfg = (hass.data.get(DOMAIN, {}).get("hub") or {}).get("config") or {}
         for key, default in ((CONF_TRUST_K, DEFAULT_TRUST_K), (CONF_CAP_UP, DEFAULT_CAP), (CONF_CAP_DOWN, DEFAULT_CAP)):
@@ -373,15 +374,27 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         nxt_at: datetime | None = None
         nxt_sp: float | None = None
         if st is not None:
-            sp = (st.attributes.get("status") or {}).get("setpoints") or {}
+            status = st.attributes.get("status")
+            sp = (status.get("setpoints") if isinstance(status, dict) else None) or {}
+            # Each field parsed on its own: a bad next-switchpoint must not erase the current target.
             try:
                 sched = float(sp["this_sp_temp"]) if sp.get("this_sp_temp") is not None else None
+            except (TypeError, ValueError) as exc:
+                _LOGGER.warning("OT %s: cannot parse this_sp_temp %r: %s", self.room_name, sp.get("this_sp_temp"), exc)
+            try:
                 nxt_sp = float(sp["next_sp_temp"]) if sp.get("next_sp_temp") is not None else None
-                nxt_at = dt_util.parse_datetime(sp["next_sp_from"]) if sp.get("next_sp_from") else None
+            except (TypeError, ValueError) as exc:
+                _LOGGER.warning("OT %s: cannot parse next_sp_temp %r: %s", self.room_name, sp.get("next_sp_temp"), exc)
+            try:
+                raw_at = sp.get("next_sp_from")
+                nxt_at = dt_util.parse_datetime(str(raw_at)) if raw_at else None
                 if nxt_at is not None:
                     nxt_at = dt_util.as_utc(nxt_at)
-            except (KeyError, TypeError, ValueError):
-                sched = None
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.warning("OT %s: cannot parse next_sp_from %r: %s", self.room_name, sp.get("next_sp_from"), exc)
+                nxt_at = None
+            if sched is None and not sp:
+                _LOGGER.debug("OT %s: %s has no status.setpoints (attributes: %s)", self.room_name, backup, list(st.attributes))
         if sched is None:
             sched = self._schedule_from_ramses(primary)
         return ZoneState(current_setpoint=current, schedule_setpoint=sched, next_switchpoint_at=nxt_at, next_switchpoint_setpoint=nxt_sp)
@@ -539,6 +552,24 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
     def _any_on(self, entity_ids: list[str]) -> bool:
         return any(self._is_on(e) is True for e in entity_ids)
 
+    def _schedule_retry(self, delay_s: float = 60.0) -> None:
+        """Inputs were missing (typically right after a restart): try again soon, once."""
+        if self._retry_cancel is not None:
+            return
+
+        def _fire(_now) -> None:
+            self._retry_cancel = None
+            self.hass.async_create_task(self.async_request_refresh())
+
+        from homeassistant.helpers.event import async_call_later
+        self._retry_cancel = async_call_later(self.hass, delay_s, _fire)
+
+    async def async_shutdown(self) -> None:
+        if self._retry_cancel is not None:
+            self._retry_cancel()
+            self._retry_cancel = None
+        await super().async_shutdown()
+
     # ------------------------------------------------------------------
     # Action
     # ------------------------------------------------------------------
@@ -596,6 +627,7 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         d.next_switchpoint_at, d.next_switchpoint_setpoint = zone.next_switchpoint_at, zone.next_switchpoint_setpoint
         if zone.schedule_setpoint is None:
             fallbacks.append("schedule setpoint unavailable")
+            self._schedule_retry()
 
         d.occupancy_status, d.occupancy_offset = self._occupancy(now_local)
         d.time_window_active = self._within_time_window(now_local)

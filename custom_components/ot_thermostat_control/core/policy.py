@@ -145,8 +145,8 @@ def _window_override_active(m: OverrideMemory, inp: PolicyInputs) -> bool:
 def _manual_override(inp: PolicyInputs) -> bool:
     """Zone setpoint differs from both what we wrote and the schedule: someone touched the dial."""
     z, m, p = inp.zone, inp.memory, inp.params
-    if z.current_setpoint is None:
-        return False
+    if z.current_setpoint is None or z.schedule_setpoint is None:
+        return False  # without a schedule reference we cannot tell manual from scheduled
     tol = p.step / 2 + 1e-6
     matches_ours = m.last_written_setpoint is not None and abs(z.current_setpoint - m.last_written_setpoint) < tol
     matches_schedule = z.schedule_setpoint is not None and abs(z.current_setpoint - z.schedule_setpoint) < tol
