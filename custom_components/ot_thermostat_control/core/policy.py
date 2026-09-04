@@ -32,7 +32,7 @@ class Action(str, Enum):
 
 @dataclass(frozen=True)
 class PolicyParams:
-    step: float = 0.5  # thermostat resolution; writes below this are suppressed
+    step: float = 0.1  # thermostat resolution; writes below this are suppressed
     override_minutes: int = 60
     refresh_before_expiry_minutes: int = 15
     manual_hold_minutes: int = 120

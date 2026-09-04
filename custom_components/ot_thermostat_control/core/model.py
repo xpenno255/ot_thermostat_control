@@ -76,7 +76,7 @@ class ModelParams:
     trust_k: float = 0.8  # fraction of the physical offset applied
     cap_up: float = 1.5
     cap_down: float = 1.5
-    step: float = 0.5  # thermostat resolution
+    step: float = 0.1  # thermostat resolution
     asymmetry_a: float = 0.0  # 0 disables the radiant-asymmetry term
     asymmetry_cap: float = 1.0
     loft_delta: float = 1.0  # loft air = t_out + loft_delta

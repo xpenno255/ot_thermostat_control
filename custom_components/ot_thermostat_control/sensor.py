@@ -87,6 +87,7 @@ class OTRoomSensor(OTRoomEntity, SensorEntity):
         if self._key == "target_ot":
             return {
                 "schedule_setpoint": d.schedule_setpoint,
+                "schedule_source": d.schedule_source,
                 "occupancy_offset": d.occupancy_offset,
                 "adaptive_shift": d.adaptive_shift,
                 "next_switchpoint_at": d.next_switchpoint_at,

@@ -70,6 +70,7 @@ async def _setup(hass: HomeAssistant, mode: str) -> tuple[MockConfigEntry, MockC
         calls.append(dict(call.data))
 
     hass.services.async_register("ramses_cc", "set_zone_mode", fake_set_zone_mode)
+    hass.services.async_register("ramses_cc", "get_zone_schedule", lambda call: calls.append({"get_zone_schedule": dict(call.data)}))
     _set_states(hass)
 
     hub = MockConfigEntry(
@@ -105,10 +106,10 @@ async def test_shadow_mode_computes_and_writes_nothing(hass: HomeAssistant):
     assert d.air_temp == 19.0 and d.air_temp_source == "sensor.thm_22_066067_temperature"
     assert d.outdoor_temp == 0.0 and d.wind_ms == pytest.approx(3.0)
     assert d.offset_physical is not None and 0.6 < d.offset_physical < 1.0
-    assert d.air_setpoint in (19.5, 20.0)
+    assert 19.4 <= d.air_setpoint <= 20.0 and round(d.air_setpoint * 10) == d.air_setpoint * 10  # 0.1 °C steps
     assert d.would_write == d.air_setpoint
     assert d.radiator_output_w is not None and d.radiator_output_w > 2000
-    assert calls == []
+    assert [c for c in calls if 'mode' in c] == []
     assert d.fallbacks == []
 
     st = hass.states.get("sensor.ot_living_room_state")
@@ -121,42 +122,45 @@ async def test_shadow_mode_computes_and_writes_nothing(hass: HomeAssistant):
 async def test_active_mode_writes_once_then_holds(hass: HomeAssistant):
     hub, room, calls = await _setup(hass, MODE_ACTIVE)
     coordinator = room.runtime_data
+    writes = [c for c in calls if "mode" in c]
     assert coordinator.data.state == "active"
-    assert len(calls) == 1
-    assert calls[0]["mode"] == "temporary_override"
-    assert calls[0]["entity_id"] == "climate.living_room_2"
-    assert calls[0]["setpoint"] == coordinator.data.air_setpoint
+    assert len(writes) == 1
+    assert writes[0]["mode"] == "temporary_override"
+    assert writes[0]["entity_id"] == "climate.living_room_2"
+    assert writes[0]["setpoint"] == coordinator.data.air_setpoint
+    assert any("get_zone_schedule" in c for c in calls)  # daily RF schedule fetch requested once
 
     # Zone now reports what we wrote; next cycle must not rewrite.
-    _set_states(hass, zone_sp=calls[0]["setpoint"])
+    _set_states(hass, zone_sp=writes[0]["setpoint"])
     await coordinator.async_refresh()
-    assert len(calls) == 1
+    assert len([c for c in calls if "mode" in c]) == 1
     assert "unchanged" in coordinator.data.reason
 
 
 async def test_manual_dial_change_is_left_alone(hass: HomeAssistant):
     hub, room, calls = await _setup(hass, MODE_ACTIVE)
     coordinator = room.runtime_data
-    assert len(calls) == 1
+    assert len([c for c in calls if "mode" in c]) == 1
     _set_states(hass, zone_sp=22.0)  # someone turned it up
     await coordinator.async_refresh()
     assert coordinator.data.state == "manual"
-    assert len(calls) == 1
+    assert len([c for c in calls if "mode" in c]) == 1
 
 
 async def test_disabling_room_releases_override(hass: HomeAssistant):
     hub, room, calls = await _setup(hass, MODE_ACTIVE)
     coordinator = room.runtime_data
-    assert len(calls) == 1, (coordinator.data.state, coordinator.data.reason, coordinator.data.fallbacks)
+    assert len([c for c in calls if "mode" in c]) == 1, (coordinator.data.state, coordinator.data.reason, coordinator.data.fallbacks)
     coordinator.enabled = False
     await coordinator.async_refresh()
     assert coordinator.data.state == "off"
-    assert calls[-1]["mode"] == "follow_schedule"
+    assert [c for c in calls if "mode" in c][-1]["mode"] == "follow_schedule"
 
 
 async def test_missing_room_file_is_reported_not_fatal(hass: HomeAssistant):
     calls: list = []
     hass.services.async_register("ramses_cc", "set_zone_mode", lambda call: calls.append(call))
+    hass.services.async_register("ramses_cc", "get_zone_schedule", lambda call: None)
     _set_states(hass)
     hub = MockConfigEntry(domain=DOMAIN, entry_id=_uid("hub"), version=2,
                           data={"entry_type": ENTRY_TYPE_HUB, CONF_WEATHER_ENTITY: "weather.home", CONF_HOUSE_DIR: str(FIXTURES)})
@@ -184,3 +188,33 @@ def test_hub_running_mean_needs_three_days():
     assert hub.days_completed == 3
     assert hub.running_mean_ready
     assert 0 < hub.running_mean < 10
+
+
+RAMSES_SCHEDULE = [
+    {"day_of_week": d, "switchpoints": [{"time_of_day": "00:00", "heat_setpoint": 17.5}, {"time_of_day": "06:30", "heat_setpoint": 19.0}]}
+    for d in range(7)
+]
+
+
+async def test_offline_fallbacks_ramses_schedule_and_outdoor_cache(hass: HomeAssistant):
+    """No cloud: evohome entity gone, weather sources gone. Ramses schedule and cached outdoor keep it running."""
+    hub, room, calls = await _setup(hass, MODE_SHADOW)
+    coordinator = room.runtime_data
+    assert coordinator.data.schedule_source == "evohome"
+
+    # Internet dies: evohome entity unavailable, Met Office and met.no unavailable, ramses has a local schedule.
+    hass.states.async_set("climate.living_room", "unavailable", {})
+    hass.states.async_set("sensor.met_office_weoley_castle_temperature", "unavailable", {})
+    hass.states.async_set("weather.home", "unavailable", {})
+    hass.states.async_set("climate.living_room_2", "heat", {"current_temperature": 19.0, "temperature": 19.0, "schedule": RAMSES_SCHEDULE})
+    await coordinator.async_refresh()
+    d = coordinator.data
+    assert d.schedule_setpoint == 19.0 and d.schedule_source == "ramses"
+    assert d.outdoor_temp == 0.0 and "cache" in d.outdoor_source
+    assert any("outdoor temperature from cache" in f for f in d.fallbacks)
+    assert d.state == "shadow" and d.would_write is not None
+
+    # ramses attribute disappears too: the cached copy of the schedule is used.
+    hass.states.async_set("climate.living_room_2", "heat", {"current_temperature": 19.0, "temperature": 19.0})
+    await coordinator.async_refresh()
+    assert coordinator.data.schedule_setpoint == 19.0 and coordinator.data.schedule_source == "ramses"

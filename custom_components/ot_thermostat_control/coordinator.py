@@ -92,6 +92,8 @@ from .const import (
     MODE_ACTIVE,
     MORNING_END,
     MORNING_START,
+    OUTDOOR_CACHE_MAX_AGE_H,
+    SCHEDULE_FETCH_INTERVAL_H,
     THERMOSTAT_STEP,
 )
 from .core.geometry import RoomGeometry, load_house, load_room
@@ -136,6 +138,7 @@ class OTCoordinatorData:
     last_written_setpoint: float | None = None
     # Target
     schedule_setpoint: float | None = None
+    schedule_source: str = "none"
     target_ot: float | None = None
     adaptive_shift: float = 0.0
     occupancy_status: str = "no_sensor"
@@ -192,6 +195,7 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         self._geometry: RoomGeometry | None = None
         self._geometry_error: str | None = None
         self._retry_cancel = None
+        self._schedule_source = "none"
         self._tunables: dict[str, float] = {}
         hub_cfg = (hass.data.get(DOMAIN, {}).get("hub") or {}).get("config") or {}
         for key, default in ((CONF_TRUST_K, DEFAULT_TRUST_K), (CONF_CAP_UP, DEFAULT_CAP), (CONF_CAP_DOWN, DEFAULT_CAP)):
@@ -397,12 +401,44 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
                 _LOGGER.debug("OT %s: %s has no status.setpoints (attributes: %s)", self.room_name, backup, list(st.attributes))
         if sched is None:
             sched = self._schedule_from_ramses(primary)
+            if sched is not None:
+                self._schedule_source = "ramses"
+        else:
+            self._schedule_source = "evohome"
         return ZoneState(current_setpoint=current, schedule_setpoint=sched, next_switchpoint_at=nxt_at, next_switchpoint_setpoint=nxt_sp)
 
-    def _schedule_from_ramses(self, entity_id: str | None) -> float | None:
+    def _ramses_schedule(self, entity_id: str | None) -> list | None:
+        """Live ramses schedule if present (and cache it), else the cached copy from the store."""
         st = self._state(entity_id)
         schedule = st.attributes.get("schedule") if st else None
-        if not isinstance(schedule, list):
+        if isinstance(schedule, list) and schedule:
+            if self._store.get("ramses_schedule") != schedule:
+                self._store.set("ramses_schedule", schedule)
+                self._store.set("ramses_schedule_saved_at", dt_util.utcnow().isoformat())
+            return schedule
+        cached = self._store.get("ramses_schedule")
+        return cached if isinstance(cached, list) and cached else None
+
+    async def _maybe_fetch_ramses_schedule(self, entity_id: str | None) -> None:
+        """Ask ramses_cc to pull the zone schedule over RF about once a day, so the offline
+        fallback stays current. Staggered naturally by each room's own cycle timing."""
+        if not entity_id:
+            return
+        last = self._store.get("ramses_schedule_requested_at")
+        if last:
+            parsed = dt_util.parse_datetime(str(last))
+            if parsed and dt_util.utcnow() - dt_util.as_utc(parsed) < timedelta(hours=SCHEDULE_FETCH_INTERVAL_H):
+                return
+        self._store.set("ramses_schedule_requested_at", dt_util.utcnow().isoformat())
+        try:
+            await self.hass.services.async_call("ramses_cc", "get_zone_schedule", {"entity_id": entity_id}, blocking=False)
+            _LOGGER.debug("OT %s: requested zone schedule over RF", self.room_name)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("OT %s: ramses_cc.get_zone_schedule unavailable", self.room_name)
+
+    def _schedule_from_ramses(self, entity_id: str | None) -> float | None:
+        schedule = self._ramses_schedule(entity_id)
+        if not schedule:
             return None
         now = dt_util.now()
         dow, hhmm = now.weekday(), now.strftime("%H:%M")
@@ -449,6 +485,19 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             src = f"{weather}.temperature"
             if t_out is not None and hub.get(CONF_OUTDOOR_TEMP_SENSOR):
                 fallbacks.append("outdoor temperature from weather entity")
+        hub_data = self._hub()
+        if t_out is not None and hub_data is not None and hub_data.store is not None:
+            hub_data.store.set("outdoor_cache", t_out)
+            hub_data.store.set("outdoor_cache_at", dt_util.utcnow().isoformat())
+        if t_out is None and hub_data is not None and hub_data.store is not None:
+            cached, at = hub_data.store.get("outdoor_cache"), hub_data.store.get("outdoor_cache_at")
+            parsed = dt_util.parse_datetime(str(at)) if at else None
+            if cached is not None and parsed is not None:
+                age = dt_util.utcnow() - dt_util.as_utc(parsed)
+                if age < timedelta(hours=OUTDOOR_CACHE_MAX_AGE_H):
+                    t_out = float(cached)
+                    src = f"cache ({int(age.total_seconds() // 60)} min old)"
+                    fallbacks.append(f"outdoor temperature from cache, {int(age.total_seconds() // 60)} min old")
         if t_out is None:
             return None, {"outdoor_source": "none"}
         # Wind: use the weather entity's declared unit
@@ -622,7 +671,9 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             fallbacks.append(f"geometry: {self._geometry_error}")
 
         # --- target -------------------------------------------------------
+        await self._maybe_fetch_ramses_schedule(self._config.get(CONF_PRIMARY_CLIMATE))
         zone = self._schedule()
+        d.schedule_source = self._schedule_source
         d.schedule_setpoint, d.zone_setpoint = zone.schedule_setpoint, zone.current_setpoint
         d.next_switchpoint_at, d.next_switchpoint_setpoint = zone.next_switchpoint_at, zone.next_switchpoint_setpoint
         if zone.schedule_setpoint is None:

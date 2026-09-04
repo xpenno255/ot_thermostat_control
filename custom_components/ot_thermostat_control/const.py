@@ -206,4 +206,6 @@ CONF_ADAPTIVE_REF = "adaptive_reference"
 DEFAULT_ADAPTIVE_REF = 10.0
 CONF_GROUND_TEMP = "ground_temp"
 DEFAULT_GROUND_TEMP = 10.0
-THERMOSTAT_STEP = 0.5
+THERMOSTAT_STEP = 0.1  # ramses accepts 0.1 °C setpoints (v1 wrote 0.1 steps for months)
+SCHEDULE_FETCH_INTERVAL_H = 24  # how often to pull the zone schedule over RF for offline use
+OUTDOOR_CACHE_MAX_AGE_H = 6     # how long a cached outdoor temperature may stand in for a dead source
