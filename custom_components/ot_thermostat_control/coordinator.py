@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -606,7 +606,8 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         if self._retry_cancel is not None:
             return
 
-        def _fire(_now) -> None:
+        @callback
+        def _fire(_now) -> None:  # @callback: run in the event loop, not the executor
             self._retry_cancel = None
             self.hass.async_create_task(self.async_request_refresh())
 

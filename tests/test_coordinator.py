@@ -218,3 +218,31 @@ async def test_offline_fallbacks_ramses_schedule_and_outdoor_cache(hass: HomeAss
     hass.states.async_set("climate.living_room_2", "heat", {"current_temperature": 19.0, "temperature": 19.0})
     await coordinator.async_refresh()
     assert coordinator.data.schedule_setpoint == 19.0 and coordinator.data.schedule_source == "ramses"
+
+
+async def test_startup_retry_recovers_missing_schedule(hass: HomeAssistant):
+    """Evohome not yet available at first refresh: a 60 s retry picks the schedule up."""
+    calls: list = []
+    hass.services.async_register("ramses_cc", "set_zone_mode", lambda call: calls.append(call))
+    hass.services.async_register("ramses_cc", "get_zone_schedule", lambda call: None)
+    _set_states(hass)
+    hass.states.async_remove("climate.living_room")  # evohome cloud not up yet
+    hub = MockConfigEntry(domain=DOMAIN, entry_id=_uid("hub"), version=2,
+                          data={"entry_type": ENTRY_TYPE_HUB, CONF_WEATHER_ENTITY: "weather.home",
+                                CONF_OUTDOOR_TEMP_SENSOR: "sensor.met_office_weoley_castle_temperature", CONF_HOUSE_DIR: str(FIXTURES)})
+    room = MockConfigEntry(domain=DOMAIN, entry_id=_uid("room"), version=2,
+                           data={"entry_type": ENTRY_TYPE_ROOM, CONF_NAME: "Living Room", CONF_ROOM_ID: "living_room",
+                                 CONF_PRIMARY_CLIMATE: "climate.living_room_2", CONF_BACKUP_CLIMATE: "climate.living_room", CONF_MODE: MODE_SHADOW})
+    hub.add_to_hass(hass); room.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub.entry_id)
+    await hass.async_block_till_done()
+    coordinator = room.runtime_data
+    assert coordinator.data.state == "no_data"
+    first_run = coordinator.data.last_run
+
+    _set_states(hass)  # evohome comes back
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=65))
+    await hass.async_block_till_done()
+    assert coordinator.data.last_run != first_run, "retry did not run"
+    assert coordinator.data.state == "shadow"
+    assert coordinator.data.schedule_setpoint == 19.0
