@@ -1,81 +1,80 @@
-"""DataUpdateCoordinator for OT Thermostat Control."""
+"""v2 coordinator: gather inputs from Home Assistant, run model then policy, act once.
+
+All decisions live in `core.model` and `core.policy`. This module is glue: it
+reads entities, converts units, loads the room geometry, calls the pure
+functions, performs the single service call the policy asked for, and
+publishes a snapshot for the entities.
+"""
 from __future__ import annotations
 
-import asyncio
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import (
-    DataUpdateCoordinator,
-    UpdateFailed,
-)
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .calc import OTCalcInputs, OTCalcResult, calculate_setpoint
 from .const import (
-    CONF_AIR_TEMP_SENSOR,
-    CONF_AUTOMATION_DELAY,
+    AFTERNOON_END,
+    CONF_ADAPTIVE_ENABLED,
+    CONF_ADAPTIVE_REF,
+    CONF_ADAPTIVE_SLOPE,
+    CONF_ASYMMETRY_ENABLED,
     CONF_BACKUP_CLIMATE,
-    COAST_STABLE_CYCLES_THRESHOLD,
-    CONF_COAST_CYCLES,
-    CONF_CORRECTION_GAIN,
-    CONF_MAX_SETPOINT,
-    CONF_MAX_STEP,
-    CONF_MIN_SETPOINT,
+    CONF_CAP_DOWN,
+    CONF_CAP_UP,
+    CONF_DHW_ACTIVE_ENTITY,
+    CONF_FLOW_TEMP_ENTITY,
+    CONF_GROUND_TEMP,
+    CONF_HOUSE_DIR,
+    CONF_IRRADIANCE_SENSOR,
+    CONF_MANUAL_FLOW_TEMP,
+    CONF_MANUAL_HOLD,
+    CONF_MODE,
     CONF_NAME,
     CONF_OCCUPANCY_SENSOR,
-    CONF_ORIENTATION,
+    CONF_OUTDOOR_TEMP_SENSOR,
     CONF_OVERRIDE_DURATION,
+    CONF_PREHEAT_RELEASE,
     CONF_PRIMARY_CLIMATE,
-    CONF_ROOM_PROFILE,
+    CONF_ROOM_FILE,
+    CONF_ROOM_ID,
     CONF_RUN_INTERVAL,
-    CONF_SMOOTHING_ENABLED,
     CONF_TIME_WINDOW_ENABLED,
     CONF_TIME_WINDOW_END,
     CONF_TIME_WINDOW_START,
+    CONF_TRUST_K,
     CONF_UNOCCUPIED_DURATION,
+    CONF_WEATHER_ENTITY,
     CONF_WEEKDAY_AFTERNOON_OFFSET,
     CONF_WEEKDAY_EVENING_OFFSET,
     CONF_WEEKDAY_MORNING_OFFSET,
     CONF_WEEKEND_AFTERNOON_OFFSET,
     CONF_WEEKEND_EVENING_OFFSET,
     CONF_WEEKEND_MORNING_OFFSET,
-    CONF_OUTDOOR_HUMIDITY_SENSOR,
-    CONF_OUTDOOR_TEMP_SENSOR,
-    CONF_SOLAR_SENSOR,
-    CONF_WEATHER_ENTITY,
-    CONF_WIND_SPEED_SENSOR,
-    CONF_APPARENT_TEMP_ENTITY,
-    CONF_K_MAX,
-    CONF_WEATHER_K_BOOST,
-    CONF_WEATHER_REF_TEMP,
-    CONF_WEATHER_SCALE,
-    CONF_WEATHER_SEVERITY_EXPONENT,
-    CONF_K_ADAPTATION_MODE,
-    CONF_GRADIENT_SCALE,
-    CONF_GRADIENT_EXPONENT,
-    DEFAULT_K_ADAPTATION_MODE,
-    DEFAULT_GRADIENT_SCALE,
-    DEFAULT_GRADIENT_EXPONENT,
-    DEFAULT_AUTOMATION_DELAY,
-    DEFAULT_COAST_CYCLES,
-    DEFAULT_CORRECTION_GAIN,
-    DEFAULT_MAX_SETPOINT,
-    DEFAULT_MAX_STEP,
-    DEFAULT_MIN_SETPOINT,
-    DEFAULT_ORIENTATION,
+    CONF_WINDOW_DELAY,
+    CONF_WINDOW_OPEN_DELAY,
+    CONF_WINDOW_SETPOINT,
+    DEFAULT_ADAPTIVE_ENABLED,
+    DEFAULT_ADAPTIVE_REF,
+    DEFAULT_ADAPTIVE_SLOPE,
+    DEFAULT_CAP,
+    DEFAULT_GROUND_TEMP,
+    DEFAULT_HOUSE_DIR,
+    DEFAULT_MANUAL_FLOW_TEMP,
+    DEFAULT_MANUAL_HOLD,
+    DEFAULT_MODE,
     DEFAULT_OVERRIDE_DURATION,
-    DEFAULT_ROOM_PROFILE,
+    DEFAULT_PREHEAT_RELEASE,
     DEFAULT_RUN_INTERVAL,
-    DEFAULT_SMOOTHING_ENABLED,
-    DEFAULT_MRT_BASELINE_ALPHA,
-    DEFAULT_THERMAL_ALPHA,
     DEFAULT_TIME_WINDOW_ENABLED,
     DEFAULT_TIME_WINDOW_END,
     DEFAULT_TIME_WINDOW_START,
+    DEFAULT_TRUST_K,
     DEFAULT_UNOCCUPIED_DURATION,
     DEFAULT_WEEKDAY_AFTERNOON_OFFSET,
     DEFAULT_WEEKDAY_EVENING_OFFSET,
@@ -83,112 +82,134 @@ from .const import (
     DEFAULT_WEEKEND_AFTERNOON_OFFSET,
     DEFAULT_WEEKEND_EVENING_OFFSET,
     DEFAULT_WEEKEND_MORNING_OFFSET,
-    DEFAULT_K_MAX,
-    DEFAULT_WEATHER_K_BOOST,
-    DEFAULT_WEATHER_REF_TEMP,
-    DEFAULT_WEATHER_SCALE,
-    DEFAULT_WEATHER_SEVERITY_EXPONENT,
-    DOMAIN,
-    CONF_WINDOW_SENSORS,
-    CONF_WINDOW_SETPOINT,
-    CONF_WINDOW_DELAY,
-    CONF_WINDOW_OPEN_DELAY,
-    DEFAULT_WINDOW_SETPOINT,
-    CONF_ADJACENT_SENSORS,
     DEFAULT_WINDOW_DELAY,
     DEFAULT_WINDOW_OPEN_DELAY,
+    DEFAULT_WINDOW_SETPOINT,
+    DOMAIN,
     ENTITY_AT_HOME_MODE,
     ENTITY_HOLIDAY_MODE,
-    MORNING_START,
-    MORNING_END,
-    AFTERNOON_END,
     EVENING_END,
-    ORIENTATION_AZIMUTHS,
-    ROOM_PROFILES,
+    MODE_ACTIVE,
+    MORNING_END,
+    MORNING_START,
+    THERMOSTAT_STEP,
 )
-from .mrt import MRTInputs
+from .core.geometry import RoomGeometry, load_house, load_room
+from .core.model import (
+    Correction,
+    Environment,
+    ModelParams,
+    adaptive_target_shift,
+    operative_temperature,
+    radiator_output_w,
+    required_air_temperature,
+)
+from .core.policy import (
+    Action,
+    Decision,
+    OverrideMemory,
+    PolicyInputs,
+    PolicyParams,
+    State,
+    ZoneState,
+    decide,
+)
+from .hub import OTHubData
 from .store import OTStore
 
 _LOGGER = logging.getLogger(__name__)
 
+UNAVAILABLE = ("unknown", "unavailable", "", None)
 
+
+@dataclass
 class OTCoordinatorData:
-    """Snapshot of coordinator state consumed by entities."""
+    """Snapshot published to entities after each cycle."""
 
-    def __init__(
-        self,
-        result: OTCalcResult,
-        enabled: bool,
-        overshoot_count: int,
-        active_thermostat: str = "",
-        air_temp: float | None = None,
-        last_run: datetime | None = None,
-        occupancy_status: str = "unknown",
-        active_offset: float = 0.0,
-        time_window_active: bool = True,
-        operative_temp: float | None = None,
-        equilibrium_target: float | None = None,
-        mrt_baseline: float | None = None,
-        weather_severity: float = 0.0,
-        effective_k: float = 0.0,
-        window_override_active: bool = False,
-    ) -> None:
-        self.result = result
-        self.enabled = enabled
-        self.overshoot_count = overshoot_count
-        self.active_thermostat = active_thermostat
-        self.air_temp = air_temp
-        self.last_run = last_run
-        self.occupancy_status = occupancy_status
-        self.active_offset = active_offset
-        self.time_window_active = time_window_active
-        self.operative_temp = operative_temp
-        self.equilibrium_target = equilibrium_target
-        self.mrt_baseline = mrt_baseline
-        self.weather_severity = weather_severity
-        self.effective_k = effective_k
-        self.window_override_active = window_override_active
+    state: str = State.NO_DATA.value
+    reason: str = ""
+    action: str = Action.NONE.value
+    mode: str = DEFAULT_MODE
+    enabled: bool = True
+    last_run: datetime | None = None
+    last_write: datetime | None = None
+    last_written_setpoint: float | None = None
+    # Target
+    schedule_setpoint: float | None = None
+    target_ot: float | None = None
+    adaptive_shift: float = 0.0
+    occupancy_status: str = "no_sensor"
+    occupancy_offset: float = 0.0
+    next_switchpoint_at: datetime | None = None
+    next_switchpoint_setpoint: float | None = None
+    # Room state
+    air_temp: float | None = None
+    air_temp_source: str = ""
+    zone_setpoint: float | None = None
+    # Model
+    mrt_steady_state: float | None = None
+    operative_temp: float | None = None
+    offset_physical: float | None = None
+    offset_trusted: float | None = None
+    offset_asymmetry: float | None = None
+    offset_final: float | None = None
+    air_setpoint: float | None = None
+    would_write: float | None = None
+    capped: bool = False
+    solar_k: float = 0.0
+    sum_l: float | None = None
+    # Environment
+    outdoor_temp: float | None = None
+    outdoor_source: str = ""
+    wind_ms: float | None = None
+    ghi_wm2: float | None = None
+    cloud_fraction: float | None = None
+    running_mean_outdoor: float | None = None
+    flow_temp_used: float | None = None
+    radiator_output_w: float | None = None
+    installed_output_dt50_w: float | None = None
+    # Overrides
+    window_override_active: bool = False
+    adjacent_door_open: bool = False
+    time_window_active: bool = True
+    # Diagnostics
+    fallbacks: list[str] = field(default_factory=list)
+    geometry_warnings: list[str] = field(default_factory=list)
+    glazed_area_m2: float | None = None
+    total_area_m2: float | None = None
 
 
 class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
-    """Coordinator for a single OT-controlled room."""
+    """Coordinator for one room."""
 
-    def __init__(
-        self, hass: HomeAssistant, entry: ConfigEntry, store: OTStore
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, store: OTStore) -> None:
         self._entry = entry
         self._store = store
-        self._enabled = True
-        self._occupancy_enabled = True
-        self._stable_above_count: int = 0
-        self._prev_window_open: bool = False
-
-        # Merge data + options
         self._config: dict[str, Any] = {**entry.data, **entry.options}
-
-        # Restore window-open state from persisted store (prevents resetting
-        # detection delay on HA restart when door was already open)
-        if self._store.get("window_open_time") is not None:
-            self._prev_window_open = True
-
-        interval = timedelta(
-            minutes=self._config.get(CONF_RUN_INTERVAL, DEFAULT_RUN_INTERVAL)
-        )
-
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=f"OT {self._config[CONF_NAME]}",
-            update_interval=interval,
-        )
+        self._enabled: bool = True
+        self._occupancy_enabled: bool = True
+        self._mode: str = str(self._config.get(CONF_MODE, DEFAULT_MODE))
+        self._geometry: RoomGeometry | None = None
+        self._geometry_error: str | None = None
+        self._tunables: dict[str, float] = {}
+        for key, default in ((CONF_TRUST_K, DEFAULT_TRUST_K), (CONF_CAP_UP, DEFAULT_CAP), (CONF_CAP_DOWN, DEFAULT_CAP)):
+            stored = store.get(key)
+            self._tunables[key] = float(stored if stored is not None else self._config.get(key, default))
+        interval = timedelta(minutes=float(self._config.get(CONF_RUN_INTERVAL, DEFAULT_RUN_INTERVAL)))
+        super().__init__(hass, _LOGGER, config_entry=entry, name=f"OT {self.room_name}", update_interval=interval)
 
     # ------------------------------------------------------------------
-    # Properties
+    # Properties used by entities
     # ------------------------------------------------------------------
 
     @property
     def room_name(self) -> str:
-        return self._config[CONF_NAME]
+        return str(self._config.get(CONF_NAME, "Room"))
+
+    @property
+    def room_id(self) -> str:
+        rid = self._config.get(CONF_ROOM_ID)
+        return str(rid) if rid else self.room_name.lower().replace(" ", "_")
 
     @property
     def enabled(self) -> bool:
@@ -206,996 +227,450 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
     def occupancy_enabled(self, value: bool) -> None:
         self._occupancy_enabled = value
 
-    # ------------------------------------------------------------------
-    # Number entity runtime overrides
-    # ------------------------------------------------------------------
+    @property
+    def mode(self) -> str:
+        return self._mode
 
-    _correction_gain: float | None = None
-    _coast_cycles: float | None = None
-    _f_out: float | None = None
-    _f_win: float | None = None
-    _k_loss: float | None = None
-    _k_solar: float | None = None
-    _weather_k_boost: float | None = None
-    _k_max: float | None = None
-    _thermal_alpha: float | None = None
+    @mode.setter
+    def mode(self, value: str) -> None:
+        self._mode = value
 
-    _ATTR_MAP: dict[str, str] = {
-        CONF_CORRECTION_GAIN: "_correction_gain",
-        CONF_COAST_CYCLES: "_coast_cycles",
-        "f_out": "_f_out",
-        "f_win": "_f_win",
-        "k_loss": "_k_loss",
-        "k_solar": "_k_solar",
-        CONF_WEATHER_K_BOOST: "_weather_k_boost",
-        CONF_K_MAX: "_k_max",
-        "thermal_alpha": "_thermal_alpha",
-    }
+    @property
+    def geometry(self) -> RoomGeometry | None:
+        return self._geometry
 
-    _DEFAULT_MAP: dict[str, float] = {
-        CONF_CORRECTION_GAIN: DEFAULT_CORRECTION_GAIN,
-        CONF_COAST_CYCLES: DEFAULT_COAST_CYCLES,
-        CONF_WEATHER_K_BOOST: DEFAULT_WEATHER_K_BOOST,
-        CONF_K_MAX: DEFAULT_K_MAX,
-        CONF_WEATHER_SEVERITY_EXPONENT: DEFAULT_WEATHER_SEVERITY_EXPONENT,
-    }
+    def get_tunable(self, key: str) -> float:
+        return self._tunables[key]
 
-    def get_number_value(self, key: str) -> float:
-        """Get a tuneable number value (entity override > store > config > profile)."""
-        attr = self._ATTR_MAP.get(key)
-        if attr:
-            val = getattr(self, attr, None)
-            if val is not None:
-                return val
-
-        stored = self._store.get(key)
-        if stored is not None:
-            return float(stored)
-
-        if key in self._DEFAULT_MAP:
-            return float(self._config.get(key, self._DEFAULT_MAP[key]))
-
-        profile_key = self._config.get(CONF_ROOM_PROFILE, DEFAULT_ROOM_PROFILE)
-        profile = ROOM_PROFILES.get(profile_key, {})
-        if key in profile:
-            return profile[key]
-
-        if key == "thermal_alpha":
-            return DEFAULT_THERMAL_ALPHA
-
-        return 0.0
-
-    def set_number_value(self, key: str, value: float) -> None:
-        """Set a tuneable number value (called by number entities)."""
-        attr = self._ATTR_MAP.get(key)
-        if attr:
-            setattr(self, attr, value)
-        self._store.set(key, value)
+    def set_tunable(self, key: str, value: float) -> None:
+        self._tunables[key] = float(value)
+        self._store.set(key, float(value))
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Geometry
     # ------------------------------------------------------------------
 
-    def _get_float_state(self, entity_id: str) -> float | None:
-        state = self.hass.states.get(entity_id)
-        if state is None or state.state in ("unknown", "unavailable"):
+    def _house_dir(self) -> Path:
+        hub = self._hub_config()
+        raw = str(hub.get(CONF_HOUSE_DIR) or DEFAULT_HOUSE_DIR)
+        p = Path(raw)
+        return p if p.is_absolute() else Path(self.hass.config.path(raw))
+
+    def _load_geometry_sync(self) -> RoomGeometry:
+        house_dir = self._house_dir()
+        house = load_house(house_dir / "house.yaml")
+        room_file = self._config.get(CONF_ROOM_FILE)
+        path = Path(room_file) if room_file else house_dir / "rooms" / f"{self.room_id}.yaml"
+        return load_room(path, house)
+
+    async def async_load_geometry(self) -> None:
+        """(Re)load the room's survey file. Errors are kept, not raised."""
+        try:
+            self._geometry = await self.hass.async_add_executor_job(self._load_geometry_sync)
+            self._geometry_error = None
+            for w in self._geometry.warnings:
+                _LOGGER.warning("OT %s geometry: %s", self.room_name, w)
+        except Exception as exc:  # noqa: BLE001
+            self._geometry = None
+            self._geometry_error = f"{type(exc).__name__}: {exc}"
+            _LOGGER.error("OT %s: cannot load room geometry: %s", self.room_name, self._geometry_error)
+
+    # ------------------------------------------------------------------
+    # Small HA helpers
+    # ------------------------------------------------------------------
+
+    def _state(self, entity_id: str | None):
+        return self.hass.states.get(entity_id) if entity_id else None
+
+    def _float_state(self, entity_id: str | None) -> float | None:
+        st = self._state(entity_id)
+        if st is None or st.state in UNAVAILABLE:
             return None
         try:
-            return float(state.state)
+            return float(st.state)
         except (ValueError, TypeError):
             return None
 
-    def _get_float_attr(self, entity_id: str, attr: str) -> float | None:
-        state = self.hass.states.get(entity_id)
-        if state is None:
-            return None
-        val = state.attributes.get(attr)
-        if val is None:
+    def _float_attr(self, entity_id: str | None, attr: str) -> float | None:
+        st = self._state(entity_id)
+        if st is None:
             return None
         try:
-            return float(val)
+            v = st.attributes.get(attr)
+            return None if v is None else float(v)
         except (ValueError, TypeError):
             return None
 
-    def _get_hub_config(self) -> dict[str, Any]:
-        """Find the hub entry and return its merged config.
+    def _is_on(self, entity_id: str | None) -> bool | None:
+        st = self._state(entity_id)
+        if st is None or st.state in UNAVAILABLE:
+            return None
+        return st.state == "on"
 
-        Returns empty dict if no hub exists (backwards-compat fallback).
-        """
-        hub_info = self.hass.data.get(DOMAIN, {}).get("hub")
-        if hub_info is None:
-            _LOGGER.warning(
-                "OT %s: no global hub found, using per-room config (deprecated)",
-                self.room_name,
-            )
-            return {}
-        return hub_info.get("config", {})
+    def _hub(self) -> OTHubData | None:
+        info = self.hass.data.get(DOMAIN, {}).get("hub")
+        return info["data"] if info else None
 
-    def _is_global_enabled(self) -> bool:
-        """Check if global overrides are enabled via the hub switch."""
-        hub_info = self.hass.data.get(DOMAIN, {}).get("hub")
-        if hub_info is None:
-            return True  # No hub = no global disable
-        return hub_info["data"].global_enabled
+    def _hub_config(self) -> dict[str, Any]:
+        info = self.hass.data.get(DOMAIN, {}).get("hub")
+        return dict(info["config"]) if info else {}
 
-    def _is_holiday_mode(self) -> bool:
-        """Check if holiday mode is active. Returns False if entity missing."""
-        state = self.hass.states.get(ENTITY_HOLIDAY_MODE)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return False
-        return state.state == "on"
+    # ------------------------------------------------------------------
+    # Time window and occupancy (carried over from v1)
+    # ------------------------------------------------------------------
 
-    def _is_at_home_mode(self) -> bool:
-        """Check if at-home mode is active. Returns False if entity missing."""
-        state = self.hass.states.get(ENTITY_AT_HOME_MODE)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return False
-        return state.state == "on"
+    def _within_time_window(self, now_local: datetime) -> bool:
+        if not self._config.get(CONF_TIME_WINDOW_ENABLED, DEFAULT_TIME_WINDOW_ENABLED):
+            return True
+        cur = now_local.hour * 60 + now_local.minute
+        s = str(self._config.get(CONF_TIME_WINDOW_START, DEFAULT_TIME_WINDOW_START)).split(":")
+        e = str(self._config.get(CONF_TIME_WINDOW_END, DEFAULT_TIME_WINDOW_END)).split(":")
+        start, end = int(s[0]) * 60 + int(s[1]), int(e[0]) * 60 + int(e[1])
+        if start <= end:
+            return start <= cur < end
+        return cur >= start or cur < end
 
-    def _is_within_time_window(self) -> bool:
-        """Check if current time is within the configured operating window.
-
-        Returns True if time window is disabled (run 24/7) or if currently
-        within the window.
-        """
-        if not self._config.get(
-            CONF_TIME_WINDOW_ENABLED, DEFAULT_TIME_WINDOW_ENABLED
-        ):
-            return True  # Feature disabled = always active
-
-        now = dt_util.now()
-        current_minutes = now.hour * 60 + now.minute
-
-        start_str = self._config.get(
-            CONF_TIME_WINDOW_START, DEFAULT_TIME_WINDOW_START
-        )
-        end_str = self._config.get(
-            CONF_TIME_WINDOW_END, DEFAULT_TIME_WINDOW_END
-        )
-
-        # Parse "HH:MM" or "HH:MM:SS" strings to minutes
-        s_parts = str(start_str).split(":")
-        e_parts = str(end_str).split(":")
-        start_min = int(s_parts[0]) * 60 + int(s_parts[1])
-        end_min = int(e_parts[0]) * 60 + int(e_parts[1])
-
-        if start_min <= end_min:
-            return start_min <= current_minutes < end_min
-        # Wraps midnight (e.g., 22:00 - 06:30)
-        return current_minutes >= start_min or current_minutes < end_min
-
-    def _get_occupancy_offset(self) -> tuple[str, float]:
-        """Determine occupancy status and the applicable offset.
-
-        Returns (status, offset) where status is
-        "occupied" | "unoccupied" | "no_sensor" | "disabled" and offset
-        is the raw (un-halved) value for the current time period (0.0 if none).
-        """
+    def _occupancy(self, now_local: datetime) -> tuple[str, float]:
+        """Return (status, offset applied to the target)."""
         if not self._occupancy_enabled:
-            return ("disabled", 0.0)
-
-        sensor_id = self._config.get(CONF_OCCUPANCY_SENSOR, "")
-        if not sensor_id:
-            return ("no_sensor", 0.0)
-
-        state = self.hass.states.get(sensor_id)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return ("no_sensor", 0.0)
-
-        if state.state != "off":
-            # Sensor is "on" = occupied
-            return ("occupied", 0.0)
-
-        # Sensor is "off" = not occupied. Check duration.
-        unoccupied_duration = float(
-            self._config.get(
-                CONF_UNOCCUPIED_DURATION, DEFAULT_UNOCCUPIED_DURATION
-            )
-        )
-        now = dt_util.utcnow()
-        last_changed = state.last_changed
-        if last_changed is not None:
-            elapsed_min = (now - last_changed).total_seconds() / 60.0
-            if elapsed_min < unoccupied_duration:
-                return ("occupied", 0.0)  # Not long enough yet
-
-        # Unoccupied long enough — determine which offset to use
-        offset = self._pick_time_period_offset()
-        return ("unoccupied", offset)
-
-    def _pick_time_period_offset(self) -> float:
-        """Pick the occupancy offset for the current time period.
-
-        Uses weekend offsets if actual weekend OR at_home_mode is on.
-        Returns 0.0 if outside all defined periods (night).
-        """
-        now = dt_util.now()
-        current_minutes = now.hour * 60 + now.minute
-
-        is_weekend = now.weekday() >= 5 or self._is_at_home_mode()
-
-        # Determine time period
-        if MORNING_START <= current_minutes < MORNING_END:
-            period = "morning"
-        elif MORNING_END <= current_minutes < AFTERNOON_END:
-            period = "afternoon"
-        elif AFTERNOON_END <= current_minutes < EVENING_END:
-            period = "evening"
+            return "disabled", 0.0
+        sensor = self._config.get(CONF_OCCUPANCY_SENSOR)
+        st = self._state(sensor)
+        if st is None or st.state in UNAVAILABLE:
+            return "no_sensor", 0.0
+        if st.state != "off":
+            return "occupied", 0.0
+        elapsed = (dt_util.utcnow() - st.last_changed).total_seconds() / 60.0
+        if elapsed < float(self._config.get(CONF_UNOCCUPIED_DURATION, DEFAULT_UNOCCUPIED_DURATION)):
+            return "occupied", 0.0
+        cur = now_local.hour * 60 + now_local.minute
+        weekend = now_local.weekday() >= 5 or (self._is_on(ENTITY_AT_HOME_MODE) is True)
+        if MORNING_START <= cur < MORNING_END:
+            keys = (CONF_WEEKEND_MORNING_OFFSET, DEFAULT_WEEKEND_MORNING_OFFSET) if weekend else (CONF_WEEKDAY_MORNING_OFFSET, DEFAULT_WEEKDAY_MORNING_OFFSET)
+        elif MORNING_END <= cur < AFTERNOON_END:
+            keys = (CONF_WEEKEND_AFTERNOON_OFFSET, DEFAULT_WEEKEND_AFTERNOON_OFFSET) if weekend else (CONF_WEEKDAY_AFTERNOON_OFFSET, DEFAULT_WEEKDAY_AFTERNOON_OFFSET)
+        elif AFTERNOON_END <= cur < EVENING_END:
+            keys = (CONF_WEEKEND_EVENING_OFFSET, DEFAULT_WEEKEND_EVENING_OFFSET) if weekend else (CONF_WEEKDAY_EVENING_OFFSET, DEFAULT_WEEKDAY_EVENING_OFFSET)
         else:
-            return 0.0  # Outside all periods — no offset
+            return "unoccupied", 0.0
+        return "unoccupied", float(self._config.get(keys[0], keys[1]))
 
-        # Select the right config key and default
-        key_map = {
-            True: {
-                "morning": (CONF_WEEKEND_MORNING_OFFSET, DEFAULT_WEEKEND_MORNING_OFFSET),
-                "afternoon": (CONF_WEEKEND_AFTERNOON_OFFSET, DEFAULT_WEEKEND_AFTERNOON_OFFSET),
-                "evening": (CONF_WEEKEND_EVENING_OFFSET, DEFAULT_WEEKEND_EVENING_OFFSET),
-            },
-            False: {
-                "morning": (CONF_WEEKDAY_MORNING_OFFSET, DEFAULT_WEEKDAY_MORNING_OFFSET),
-                "afternoon": (CONF_WEEKDAY_AFTERNOON_OFFSET, DEFAULT_WEEKDAY_AFTERNOON_OFFSET),
-                "evening": (CONF_WEEKDAY_EVENING_OFFSET, DEFAULT_WEEKDAY_EVENING_OFFSET),
-            },
-        }
-        key, default = key_map[is_weekend][period]
-        return float(self._config.get(key, default))
+    # ------------------------------------------------------------------
+    # Inputs
+    # ------------------------------------------------------------------
 
-    def _pick_active_thermostat(self) -> str:
-        """Return entity_id of the thermostat with the most recent report."""
-        primary = self._config.get(CONF_PRIMARY_CLIMATE, "")
-        backup = self._config.get(CONF_BACKUP_CLIMATE, "")
+    def _schedule(self) -> ZoneState:
+        """Scheduled target from the evohome cloud entity, else the ramses schedule attribute."""
+        primary = self._config.get(CONF_PRIMARY_CLIMATE)
+        backup = self._config.get(CONF_BACKUP_CLIMATE)
+        current = self._float_attr(primary, "temperature")
+        st = self._state(backup)
+        sched: float | None = None
+        nxt_at: datetime | None = None
+        nxt_sp: float | None = None
+        if st is not None:
+            sp = (st.attributes.get("status") or {}).get("setpoints") or {}
+            try:
+                sched = float(sp["this_sp_temp"]) if sp.get("this_sp_temp") is not None else None
+                nxt_sp = float(sp["next_sp_temp"]) if sp.get("next_sp_temp") is not None else None
+                nxt_at = dt_util.parse_datetime(sp["next_sp_from"]) if sp.get("next_sp_from") else None
+                if nxt_at is not None:
+                    nxt_at = dt_util.as_utc(nxt_at)
+            except (KeyError, TypeError, ValueError):
+                sched = None
+        if sched is None:
+            sched = self._schedule_from_ramses(primary)
+        return ZoneState(current_setpoint=current, schedule_setpoint=sched, next_switchpoint_at=nxt_at, next_switchpoint_setpoint=nxt_sp)
 
-        if not primary:
-            return backup
-
-        primary_state = self.hass.states.get(primary)
-        if primary_state is None or primary_state.state in (
-            "unknown",
-            "unavailable",
-        ):
-            return backup if backup else primary
-
-        if not backup:
-            return primary
-
-        backup_state = self.hass.states.get(backup)
-        if backup_state is None or backup_state.state in (
-            "unknown",
-            "unavailable",
-        ):
-            return primary
-
-        # Compare last_reported (HA 2024.4+) or last_updated
-        p_time = primary_state.attributes.get(
-            "last_reported", primary_state.last_updated
-        )
-        b_time = backup_state.attributes.get(
-            "last_reported", backup_state.last_updated
-        )
-        if b_time and p_time and b_time > p_time:
-            return backup
-        return primary
-
-    def _get_scheduled_setpoint(self, entity_id: str) -> float | None:
-        """Read the evohome schedule and return the active setpoint for now.
-
-        Parses the 'schedule' attribute on the climate entity to find the
-        switchpoint that is currently active (most recent switchpoint whose
-        time_of_day has passed today). This avoids reading the 'temperature'
-        attribute which may reflect our own override.
-
-        The schedule is cached in the store so that if the entity enters an
-        'unknown' state (e.g. after an HA upgrade) the last-known schedule
-        is used instead of falling back to the 'temperature' attribute.
-        """
-        state = self.hass.states.get(entity_id)
-        if state is None:
+    def _schedule_from_ramses(self, entity_id: str | None) -> float | None:
+        st = self._state(entity_id)
+        schedule = st.attributes.get("schedule") if st else None
+        if not isinstance(schedule, list):
             return None
-
-        schedule = state.attributes.get("schedule")
-
-        # Cache / retrieve schedule
-        cache_key = f"cached_schedule_{entity_id}"
-        if schedule and isinstance(schedule, list):
-            # Live schedule available — cache it
-            cached = self._store.get(cache_key)
-            if cached != schedule:
-                self._store.set(cache_key, schedule)
-                _LOGGER.debug(
-                    "OT %s cached schedule for %s", self.room_name, entity_id
-                )
-        else:
-            # No live schedule — try cached version
-            schedule = self._store.get(cache_key)
-            if schedule and isinstance(schedule, list):
-                _LOGGER.info(
-                    "OT %s using cached schedule for %s (live schedule unavailable)",
-                    self.room_name,
-                    entity_id,
-                )
-            else:
-                _LOGGER.warning(
-                    "OT %s no schedule available for %s (live and cache both empty)",
-                    self.room_name,
-                    entity_id,
-                )
-                return None
-
-        return self._resolve_schedule_setpoint(schedule)
-
-    def _resolve_schedule_setpoint(self, schedule: list) -> float | None:
-        """Find the active setpoint from a schedule switchpoint list."""
         now = dt_util.now()
-        dow = now.weekday()  # 0=Monday
-        current_time = now.strftime("%H:%M")
-
-        # Find today's switchpoints
-        today_switchpoints = []
+        dow, hhmm = now.weekday(), now.strftime("%H:%M")
         for day in schedule:
             if day.get("day_of_week") == dow:
-                today_switchpoints = day.get("switchpoints", [])
-                break
-
-        if not today_switchpoints:
-            return None
-
-        # Find the most recent switchpoint that has passed
-        active_setpoint = None
-        for sp in today_switchpoints:
-            sp_time = sp.get("time_of_day", "")
-            sp_heat = sp.get("heat_setpoint")
-            if sp_time <= current_time and sp_heat is not None:
-                active_setpoint = float(sp_heat)
-
-        if active_setpoint is None:
-            # Before first switchpoint today — use last switchpoint from
-            # yesterday (wrap around)
-            yesterday_dow = (dow - 1) % 7
-            for day in schedule:
-                if day.get("day_of_week") == yesterday_dow:
-                    yesterday_sps = day.get("switchpoints", [])
-                    if yesterday_sps:
-                        last_sp = yesterday_sps[-1]
-                        active_setpoint = float(last_sp.get("heat_setpoint", 0))
-                    break
-
-        return active_setpoint
-
-    def _get_next_switchpoint_setpoint(
-        self, entity_id: str
-    ) -> float | None:
-        """Get the next upcoming switchpoint setpoint (for pre-heat detection)."""
-        state = self.hass.states.get(entity_id)
-        if state is None:
-            return None
-
-        schedule = state.attributes.get("schedule")
-        if not schedule or not isinstance(schedule, list):
-            # Try cached schedule
-            cache_key = f"cached_schedule_{entity_id}"
-            schedule = self._store.get(cache_key)
-            if not schedule or not isinstance(schedule, list):
-                return None
-
-        now = dt_util.now()
-        dow = now.weekday()
-        current_time = now.strftime("%H:%M")
-
-        for day in schedule:
-            if day.get("day_of_week") == dow:
+                active = None
                 for sp in day.get("switchpoints", []):
-                    if sp.get("time_of_day", "") > current_time:
-                        heat = sp.get("heat_setpoint")
-                        return float(heat) if heat is not None else None
-                break
+                    if str(sp.get("time_of_day", "")) <= hhmm and sp.get("heat_setpoint") is not None:
+                        active = float(sp["heat_setpoint"])
+                if active is not None:
+                    return active
+        for day in schedule:
+            if day.get("day_of_week") == (dow - 1) % 7 and day.get("switchpoints"):
+                last = day["switchpoints"][-1]
+                return float(last.get("heat_setpoint")) if last.get("heat_setpoint") is not None else None
         return None
 
-    def _is_window_open(self) -> bool:
-        """Return True if any configured window/door sensor is open."""
-        sensors = self._config.get(CONF_WINDOW_SENSORS, [])
-        if not sensors:
-            self._prev_window_open = False
-            return False
+    def _air_temperature(self, geometry: RoomGeometry | None, fallbacks: list[str]) -> tuple[float | None, str]:
+        preferred = geometry.preferred_air_temperature_entity if geometry else None
+        val = self._float_state(preferred)
+        if val is not None:
+            return val, preferred or ""
+        if preferred:
+            fallbacks.append(f"preferred air sensor {preferred} unavailable")
+        primary = self._config.get(CONF_PRIMARY_CLIMATE)
+        val = self._float_attr(primary, "current_temperature")
+        if val is not None:
+            return val, f"{primary}.current_temperature"
+        backup = self._config.get(CONF_BACKUP_CLIMATE)
+        val = self._float_attr(backup, "current_temperature")
+        if val is not None:
+            fallbacks.append("air temperature from backup climate entity")
+            return val, f"{backup}.current_temperature"
+        return None, ""
 
-        currently_open = any(
-            (state := self.hass.states.get(entity_id)) is not None
-            and state.state == "on"
-            for entity_id in sensors
+    def _environment(self, geometry: RoomGeometry | None, fallbacks: list[str]) -> tuple[Environment | None, dict[str, Any]]:
+        hub = self._hub_config()
+        weather = hub.get(CONF_WEATHER_ENTITY) or self._config.get(CONF_WEATHER_ENTITY)
+        # Outdoor temperature
+        t_out = self._float_state(hub.get(CONF_OUTDOOR_TEMP_SENSOR))
+        src = str(hub.get(CONF_OUTDOOR_TEMP_SENSOR) or "")
+        if t_out is None:
+            t_out = self._float_attr(weather, "temperature")
+            src = f"{weather}.temperature"
+            if t_out is not None and hub.get(CONF_OUTDOOR_TEMP_SENSOR):
+                fallbacks.append("outdoor temperature from weather entity")
+        if t_out is None:
+            return None, {"outdoor_source": "none"}
+        # Wind: use the weather entity's declared unit
+        wind = self._float_attr(weather, "wind_speed")
+        unit = (self._state(weather).attributes.get("wind_speed_unit") if self._state(weather) else None) or "km/h"
+        if wind is None:
+            wind_ms = 0.0
+            fallbacks.append("wind unavailable, 0 m/s")
+        elif unit in ("km/h", "km/hr"):
+            wind_ms = wind / 3.6
+        elif unit == "mph":
+            wind_ms = wind * 0.44704
+        elif unit == "kn":
+            wind_ms = wind * 0.514444
+        else:
+            wind_ms = wind
+        # Irradiance / cloud
+        ghi = self._float_state(hub.get(CONF_IRRADIANCE_SENSOR))
+        cloud = self._float_attr(weather, "cloud_coverage")
+        cloud_fraction = None if cloud is None else max(0.0, min(1.0, cloud / 100.0))
+        if ghi is None and hub.get(CONF_IRRADIANCE_SENSOR):
+            fallbacks.append("irradiance sensor unavailable, using cloud estimate")
+        if ghi is None and cloud_fraction is None:
+            fallbacks.append("cloud cover unavailable, assuming 50%")
+        # Sun
+        elev = self._float_attr("sun.sun", "elevation")
+        az = self._float_attr("sun.sun", "azimuth")
+        # Adjacent rooms: other coordinators' air temperatures
+        adjacent: dict[str, float] = {}
+        rooms = self.hass.data.get(DOMAIN, {}).get("rooms", {})
+        if geometry:
+            for s in geometry.surfaces:
+                if s.adjacent and s.adjacent in rooms and rooms[s.adjacent].data and rooms[s.adjacent].data.air_temp is not None:
+                    adjacent[s.adjacent] = rooms[s.adjacent].data.air_temp
+        env = Environment(
+            t_out=t_out,
+            wind_ms=wind_ms,
+            ghi_wm2=ghi,
+            cloud_fraction=cloud_fraction,
+            sun_elevation_deg=elev if elev is not None else -10.0,
+            sun_azimuth_deg=az if az is not None else 180.0,
+            t_ground=float(hub.get(CONF_GROUND_TEMP, DEFAULT_GROUND_TEMP)),
+            adjacent_temps=adjacent,
+        )
+        return env, {"outdoor_source": src, "wind_ms": wind_ms, "ghi": ghi, "cloud": cloud_fraction}
+
+    def _flow_temperature(self) -> float | None:
+        hub_data, hub = self._hub(), self._hub_config()
+        value = self._float_state(hub.get(CONF_FLOW_TEMP_ENTITY))
+        dhw = self._is_on(hub.get(CONF_DHW_ACTIVE_ENTITY))
+        manual = float(hub.get(CONF_MANUAL_FLOW_TEMP, DEFAULT_MANUAL_FLOW_TEMP))
+        if hub_data is None:
+            return value if (value is not None and not dhw) else manual
+        return hub_data.sample_flow_temp(value, dhw, manual)
+
+    def _model_params(self, geometry: RoomGeometry | None) -> ModelParams:
+        asym_on = bool(self._config.get(CONF_ASYMMETRY_ENABLED, geometry.asymmetry_enabled if geometry else False))
+        return ModelParams(
+            trust_k=self._tunables[CONF_TRUST_K],
+            cap_up=self._tunables[CONF_CAP_UP],
+            cap_down=self._tunables[CONF_CAP_DOWN],
+            step=THERMOSTAT_STEP,
+            asymmetry_a=0.5 if asym_on else 0.0,
         )
 
-        if self._prev_window_open and not currently_open:
-            # Transition: open → all closed. Start cooldown, clear open timer.
-            self._store.set("window_close_time", dt_util.utcnow().isoformat())
-            self._store.set("window_open_time", None)
-            _LOGGER.debug("OT %s window closed — cooldown started", self.room_name)
-        elif currently_open and not self._prev_window_open:
-            # Transition: closed → open. Record open time, reset cooldown.
-            self._store.set("window_open_time", dt_util.utcnow().isoformat())
-            self._store.set("window_close_time", None)
-            _LOGGER.debug("OT %s window opened — detection delay started", self.room_name)
-
-        self._prev_window_open = currently_open
-        return currently_open
-
-    def _is_window_cooling_down(self) -> bool:
-        """Return True if within the post-close cooldown window."""
-        close_time_str = self._store.get("window_close_time")
-        if not close_time_str:
-            return False
-
-        close_time = dt_util.parse_datetime(str(close_time_str))
-        if close_time is None:
-            self._store.set("window_close_time", None)
-            return False
-
-        delay_minutes = int(
-            self._config.get(CONF_WINDOW_DELAY, DEFAULT_WINDOW_DELAY)
+    def _policy_params(self) -> PolicyParams:
+        return PolicyParams(
+            step=THERMOSTAT_STEP,
+            override_minutes=int(self._config.get(CONF_OVERRIDE_DURATION, DEFAULT_OVERRIDE_DURATION)),
+            manual_hold_minutes=int(self._config.get(CONF_MANUAL_HOLD, DEFAULT_MANUAL_HOLD)),
+            window_open_delay_minutes=int(self._config.get(CONF_WINDOW_OPEN_DELAY, DEFAULT_WINDOW_OPEN_DELAY)),
+            window_close_delay_minutes=int(self._config.get(CONF_WINDOW_DELAY, DEFAULT_WINDOW_DELAY)),
+            preheat_release_minutes=int(self._config.get(CONF_PREHEAT_RELEASE, DEFAULT_PREHEAT_RELEASE)),
+            window_setpoint=float(self._config.get(CONF_WINDOW_SETPOINT, DEFAULT_WINDOW_SETPOINT)),
         )
-        if dt_util.utcnow() < close_time + timedelta(minutes=delay_minutes):
-            return True
 
-        # Cooldown expired — clear and resume normal operation
-        self._store.set("window_close_time", None)
-        _LOGGER.debug("OT %s window cooldown expired — resuming normal setpoint", self.room_name)
-        return False
+    def _memory(self) -> OverrideMemory:
+        def dt(key: str) -> datetime | None:
+            raw = self._store.get(key)
+            if not raw:
+                return None
+            parsed = dt_util.parse_datetime(str(raw))
+            return dt_util.as_utc(parsed) if parsed else None
 
-    def _is_window_delay_elapsed(self, window_open: bool) -> bool:
-        """Return True if the open-detection delay has elapsed (or is disabled)."""
-        if not window_open:
-            return False
-        open_delay = int(
-            self._config.get(CONF_WINDOW_OPEN_DELAY, DEFAULT_WINDOW_OPEN_DELAY)
+        sp = self._store.get("last_written_setpoint")
+        return OverrideMemory(
+            last_written_setpoint=float(sp) if sp is not None else None,
+            last_written_at=dt("last_written_at"),
+            manual_detected_at=dt("manual_detected_at"),
+            window_open_since=dt("window_open_since"),
+            window_closed_at=dt("window_closed_at"),
         )
-        if open_delay <= 0:
-            return True
-        open_time_str = self._store.get("window_open_time")
-        if not open_time_str:
-            return True  # No timestamp — treat as elapsed (safety fallback)
-        open_time = dt_util.parse_datetime(str(open_time_str))
-        if open_time is None:
-            self._store.set("window_open_time", None)
-            return True
-        elapsed = dt_util.utcnow() >= open_time + timedelta(minutes=open_delay)
-        if elapsed:
-            _LOGGER.debug(
-                "OT %s window detection delay elapsed — override activating",
-                self.room_name,
-            )
-        return elapsed
 
-    def _is_adjacent_open(self) -> bool:
-        """Return True if any configured adjacent-room door sensor is open."""
-        sensors = self._config.get(CONF_ADJACENT_SENSORS, [])
-        if not sensors:
-            return False
-        return any(
-            (state := self.hass.states.get(entity_id)) is not None
-            and state.state == "on"
-            for entity_id in sensors
-        )
+    def _save_memory(self, m: OverrideMemory) -> None:
+        self._store.set("last_written_setpoint", m.last_written_setpoint)
+        self._store.set("last_written_at", m.last_written_at.isoformat() if m.last_written_at else None)
+        self._store.set("manual_detected_at", m.manual_detected_at.isoformat() if m.manual_detected_at else None)
+        self._store.set("window_open_since", m.window_open_since.isoformat() if m.window_open_since else None)
+        self._store.set("window_closed_at", m.window_closed_at.isoformat() if m.window_closed_at else None)
+
+    def _any_on(self, entity_ids: list[str]) -> bool:
+        return any(self._is_on(e) is True for e in entity_ids)
 
     # ------------------------------------------------------------------
-    # Main update
+    # Action
+    # ------------------------------------------------------------------
+
+    async def _perform(self, decision: Decision) -> None:
+        primary = self._config.get(CONF_PRIMARY_CLIMATE)
+        if not primary or decision.action is Action.NONE:
+            return
+        if decision.action is Action.WRITE:
+            data = {
+                "entity_id": primary,
+                "mode": "temporary_override",
+                "setpoint": decision.setpoint,
+                "duration": {"minutes": int(self._config.get(CONF_OVERRIDE_DURATION, DEFAULT_OVERRIDE_DURATION))},
+            }
+        else:
+            data = {"entity_id": primary, "mode": "follow_schedule"}
+        try:
+            await self.hass.services.async_call("ramses_cc", "set_zone_mode", data, blocking=False)
+            _LOGGER.info("OT %s: %s %s (%s)", self.room_name, decision.action.value, decision.setpoint, decision.reason)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("OT %s: ramses_cc.set_zone_mode failed", self.room_name)
+
+    # ------------------------------------------------------------------
+    # Main cycle
     # ------------------------------------------------------------------
 
     async def _async_update_data(self) -> OTCoordinatorData:
-        """Fetch entity data and run the calculation pipeline."""
         try:
-            return await self._do_update()
+            return await self._cycle()
         except Exception as exc:  # noqa: BLE001
-            _LOGGER.exception("OT update failed for %s", self.room_name)
-            # Return last data if available, otherwise a dummy
+            _LOGGER.exception("OT %s: update failed", self.room_name)
             if self.data is not None:
                 return self.data
-            raise UpdateFailed(f"OT update failed: {exc}") from exc
+            raise UpdateFailed(str(exc)) from exc
 
-    async def _do_update(self) -> OTCoordinatorData:
-        """Inner update logic."""
-        # First cycle after startup/entry reload: no data yet. This cycle
-        # runs during async_config_entry_first_refresh, so it must not
-        # sleep (blocks HA startup) and must not write to the zone (the
-        # staggered automation_delay exists to spread ramses_cc RF writes;
-        # an immediate boot write would bypass that stagger).
-        first_cycle = self.data is None
-
-        # 1. Check enabled
-        if not self._enabled:
-            if self.data is not None:
-                return OTCoordinatorData(
-                    result=self.data.result,
-                    enabled=False,
-                    overshoot_count=self.data.overshoot_count,
-                    active_thermostat=self.data.active_thermostat,
-                    air_temp=self.data.air_temp,
-                    last_run=self.data.last_run,
-                )
-            from .calc import OTCalcResult
-            from .mrt import MRTResult
-
-            dummy_mrt = MRTResult(
-                mrt=0.0,
-                operative_temp=0.0,
-                loss_term=0.0,
-                solar_term=0.0,
-                mrt_unclamped=0.0,
-                mrt_clamped=0.0,
-                radiation_used=0.0,
-                t_out_effective=0.0,
-            )
-            dummy = OTCalcResult(
-                final_setpoint=0.0,
-                raw_setpoint=0.0,
-                mrt_result=dummy_mrt,
-                mrt_correction=0.0,
-                coast_prediction=0.0,
-                ot_rate=0.0,
-                cycles_to_target=999.0,
-                dynamic_coast_cycles=0.0,
-                desired_ot=0.0,
-                skipped=True,
-                skip_reason="disabled",
-                operative_temp=0.0,
-                weather_severity=0.0,
-                effective_k=0.0,
-            )
-            return OTCoordinatorData(
-                result=dummy,
-                enabled=False,
-                overshoot_count=self._store.get("overshoot_count", 0),
-            )
-
-        # 1a. Hub config (shared weather/sensor settings)
-        hub = self._get_hub_config()
-
-        # 1b. Check holiday mode (always active, hardcoded entity)
-        if self._is_holiday_mode():
-            _LOGGER.debug("OT %s skipped: holiday mode active", self.room_name)
-            return self._skipped_data("holiday mode active")
-
-        # 1c. Check time window
-        time_window_active = self._is_within_time_window()
-        if not time_window_active:
-            _LOGGER.debug(
-                "OT %s skipped: outside time window", self.room_name
-            )
-            return self._skipped_data("outside time window")
-
-        # 2. Automation delay (skipped on the first cycle — see above)
-        delay = self._config.get(CONF_AUTOMATION_DELAY, DEFAULT_AUTOMATION_DELAY)
-        if delay and delay > 0 and not first_cycle:
-            await asyncio.sleep(delay)
-
-        # 3. Active thermostat and air temp
-        active = self._pick_active_thermostat()
-        if not active:
-            return self._skipped_data("no thermostat configured")
-
-        air_temp = self._get_float_attr(active, "current_temperature")
-        if air_temp is None:
-            # Fallback to dedicated air temp sensor
-            sensor = self._config.get(CONF_AIR_TEMP_SENSOR, "")
-            if sensor:
-                air_temp = self._get_float_state(sensor)
-        if air_temp is None:
-            return self._skipped_data("air temperature unavailable")
-
-        # 4. Desired OT from schedule (NOT temperature attribute, to avoid
-        #    reading back our own override)
-        primary = self._config.get(CONF_PRIMARY_CLIMATE, "")
-        schedule_entity = primary if primary else active
-        desired_ot = self._get_scheduled_setpoint(schedule_entity)
-        if desired_ot is None:
-            return self._skipped_data("schedule setpoint unavailable")
-
-        # Pre-heat detection: evohome may start heating towards the next
-        # switchpoint before it activates. Only consider upward transitions
-        # (next setpoint higher than current) — evohome never pre-heats for
-        # a downward change. Compare the zone's current target against the
-        # next switchpoint to confirm pre-heat is actually active, rather
-        # than comparing against our own override.
-        next_sp = self._get_next_switchpoint_setpoint(schedule_entity)
-        if next_sp is not None and next_sp > desired_ot:
-            zone_sp = self._get_float_attr(schedule_entity, "temperature")
-            if zone_sp is not None and zone_sp >= next_sp:
-                _LOGGER.debug(
-                    "OT %s pre-heat detected: schedule=%.1f, next=%.1f, zone=%.1f",
-                    self.room_name,
-                    desired_ot,
-                    next_sp,
-                    zone_sp,
-                )
-                desired_ot = next_sp
-
-        # 4b. Occupancy offset — adjusts desired_ot when room is unoccupied
-        occupancy_status, occupancy_offset = self._get_occupancy_offset()
-        active_offset = 0.0
-        if occupancy_status == "unoccupied" and occupancy_offset != 0.0:
-            # Blueprint halves the offset: desired_ot += offset / 2
-            active_offset = round(occupancy_offset / 2.0, 2)
-            desired_ot = desired_ot + active_offset
-            _LOGGER.debug(
-                "OT %s occupancy offset: %.2f (half of %.2f), desired_ot=%.1f",
-                self.room_name, active_offset, occupancy_offset, desired_ot,
-            )
-
-        # 5. Weather data — dedicated sensors override weather entity attributes
-        weather_id = hub.get(CONF_WEATHER_ENTITY) or self._config.get(CONF_WEATHER_ENTITY, "")
-
-        # Outdoor temperature: dedicated sensor > weather entity attribute
-        outdoor_temp_sensor = hub.get(CONF_OUTDOOR_TEMP_SENSOR) or self._config.get(CONF_OUTDOOR_TEMP_SENSOR, "")
-        t_outdoor = (
-            self._get_float_state(outdoor_temp_sensor)
-            if outdoor_temp_sensor
-            else None
-        )
-        if t_outdoor is None:
-            t_outdoor = (
-                self._get_float_attr(weather_id, "temperature")
-                if weather_id
-                else None
-            )
-        if t_outdoor is None:
-            t_outdoor = 5.0  # safe fallback
-
-        # Wind speed: dedicated sensor > weather entity attribute
-        # Dedicated sensors report m/s; weather entity reports km/h
-        wind_sensor = hub.get(CONF_WIND_SPEED_SENSOR) or self._config.get(CONF_WIND_SPEED_SENSOR, "")
-        wind_speed: float | None = None
-        if wind_sensor:
-            raw = self._get_float_state(wind_sensor)
-            if raw is not None:
-                # Check unit — HA wind_speed sensors can be km/h or m/s
-                ws_state = self.hass.states.get(wind_sensor)
-                unit = (
-                    ws_state.attributes.get("unit_of_measurement", "")
-                    if ws_state
-                    else ""
-                )
-                if unit in ("km/h", "km/hr"):
-                    wind_speed = raw / 3.6
-                elif unit == "mph":
-                    wind_speed = raw * 0.44704
-                else:
-                    # Assume m/s
-                    wind_speed = raw
-        if wind_speed is None:
-            raw = (
-                self._get_float_attr(weather_id, "wind_speed")
-                if weather_id
-                else None
-            )
-            if raw is not None:
-                # HA weather entities always report km/h
-                wind_speed = raw / 3.6
-            else:
-                wind_speed = 0.0
-
-        # Cloud coverage (weather entity only, no dedicated sensor)
-        cloud_coverage = (
-            self._get_float_attr(weather_id, "cloud_coverage")
-            if weather_id
-            else None
-        )
-        if cloud_coverage is None:
-            cloud_coverage = 50.0
-
-        # Outdoor humidity: dedicated sensor > weather entity attribute
-        humidity_sensor = hub.get(CONF_OUTDOOR_HUMIDITY_SENSOR) or self._config.get(CONF_OUTDOOR_HUMIDITY_SENSOR, "")
-        outdoor_humidity = (
-            self._get_float_state(humidity_sensor)
-            if humidity_sensor
-            else None
-        )
-        if outdoor_humidity is None:
-            outdoor_humidity = (
-                self._get_float_attr(weather_id, "humidity")
-                if weather_id
-                else None
-            )
-
-        # Apparent temperature (for weather-adaptive k)
-        apparent_temp_entity = hub.get(CONF_APPARENT_TEMP_ENTITY) or self._config.get(CONF_APPARENT_TEMP_ENTITY, "")
-        apparent_temp: float | None = None
-        if apparent_temp_entity:
-            apparent_temp = self._get_float_state(apparent_temp_entity)
-
-        # 6. Sun data
-        sun_elevation = self._get_float_attr("sun.sun", "elevation") or 0.0
-        sun_azimuth = self._get_float_attr("sun.sun", "azimuth") or 180.0
-
-        # 7. Solar sensor (optional)
-        solar_sensor = hub.get(CONF_SOLAR_SENSOR) or self._config.get(CONF_SOLAR_SENSOR, "")
-        solar_radiation: float | None = None
-        if solar_sensor:
-            solar_radiation = self._get_float_state(solar_sensor)
-
-        # 8. Orientation
-        orientation = self._config.get(CONF_ORIENTATION, DEFAULT_ORIENTATION)
-        orientation_azimuth = ORIENTATION_AZIMUTHS.get(orientation, 180.0)
-
-        # 9. Build MRTInputs
-        previous_mrt = self._store.get("previous_mrt")
-        if previous_mrt is not None:
-            previous_mrt = float(previous_mrt)
-
-        mrt_inputs = MRTInputs(
-            t_air=air_temp,
-            t_outdoor=t_outdoor,
-            wind_speed_ms=wind_speed,
-            cloud_coverage=cloud_coverage,
-            f_out=self.get_number_value("f_out"),
-            f_win=self.get_number_value("f_win"),
-            k_loss=self.get_number_value("k_loss"),
-            k_solar=self.get_number_value("k_solar"),
-            orientation_azimuth=orientation_azimuth,
-            sun_elevation=sun_elevation,
-            sun_azimuth=sun_azimuth,
-            thermal_alpha=self.get_number_value("thermal_alpha"),
-            solar_radiation=solar_radiation,
-            previous_mrt=previous_mrt,
-            outdoor_humidity=outdoor_humidity,
-        )
-
-        # 10. Build OTCalcInputs
-        previous_air_temp = self._store.get("previous_air_temp")
-        if previous_air_temp is not None:
-            previous_air_temp = float(previous_air_temp)
-
-        previous_operative_temp = self._store.get("previous_operative_temp")
-        if previous_operative_temp is not None:
-            previous_operative_temp = float(previous_operative_temp)
-
-        previous_setpoint = self._store.get("previous_setpoint")
-        if previous_setpoint is not None:
-            previous_setpoint = float(previous_setpoint)
-
-        previous_setpoint_time = self._store.get("previous_setpoint_time")
-        previous_setpoint_age_s: float | None = None
-        if previous_setpoint_time is not None:
-            try:
-                prev_dt = datetime.fromisoformat(str(previous_setpoint_time))
-                previous_setpoint_age_s = (
-                    dt_util.utcnow() - prev_dt
-                ).total_seconds()
-            except (ValueError, TypeError):
-                previous_setpoint_age_s = None
-
-        # Current setpoint on the thermostat
-        current_setpoint = self._get_float_attr(active, "temperature")
-        if current_setpoint is None:
-            current_setpoint = desired_ot
-
-        # Min setpoint: configured value or fall back to desired_ot
-        min_setpoint_config = self._config.get(CONF_MIN_SETPOINT)
-        if min_setpoint_config is not None:
-            min_setpoint = float(min_setpoint_config)
-        else:
-            min_setpoint = desired_ot
-
-        calc_inputs = OTCalcInputs(
-            desired_ot=desired_ot,
-            current_air_temp=air_temp,
-            previous_air_temp=previous_air_temp,
-            current_setpoint=current_setpoint,
-            mrt_inputs=mrt_inputs,
-            correction_gain=self.get_number_value(CONF_CORRECTION_GAIN),
-            coast_cycles=self.get_number_value(CONF_COAST_CYCLES),
-            max_setpoint=float(
-                self._config.get(CONF_MAX_SETPOINT, DEFAULT_MAX_SETPOINT)
-            ),
-            min_setpoint=min_setpoint,
-            max_step=float(self._config.get(CONF_MAX_STEP, DEFAULT_MAX_STEP)),
-            smoothing_enabled=bool(
-                hub.get(CONF_SMOOTHING_ENABLED, self._config.get(CONF_SMOOTHING_ENABLED, DEFAULT_SMOOTHING_ENABLED))
-            ),
-            previous_setpoint=previous_setpoint,
-            previous_setpoint_age_s=previous_setpoint_age_s,
-            previous_operative_temp=previous_operative_temp,
-            apparent_temp=apparent_temp,
-            weather_k_boost=self.get_number_value(CONF_WEATHER_K_BOOST),
-            weather_ref_temp=float(
-                hub.get(CONF_WEATHER_REF_TEMP, self._config.get(CONF_WEATHER_REF_TEMP, DEFAULT_WEATHER_REF_TEMP))
-            ),
-            weather_scale=float(
-                hub.get(CONF_WEATHER_SCALE, self._config.get(CONF_WEATHER_SCALE, DEFAULT_WEATHER_SCALE))
-            ),
-            k_max=self.get_number_value(CONF_K_MAX),
-            weather_severity_exponent=float(
-                hub.get(CONF_WEATHER_SEVERITY_EXPONENT, self._config.get(CONF_WEATHER_SEVERITY_EXPONENT, DEFAULT_WEATHER_SEVERITY_EXPONENT))
-            ),
-            k_adaptation_mode=str(
-                self._config.get(CONF_K_ADAPTATION_MODE, DEFAULT_K_ADAPTATION_MODE)
-            ),
-            gradient_scale=float(
-                hub.get(CONF_GRADIENT_SCALE, self._config.get(CONF_GRADIENT_SCALE, DEFAULT_GRADIENT_SCALE))
-            ),
-            gradient_exponent=float(
-                hub.get(CONF_GRADIENT_EXPONENT, self._config.get(CONF_GRADIENT_EXPONENT, DEFAULT_GRADIENT_EXPONENT))
-            ),
-        )
-
-        # 11. Calculate
-        result = calculate_setpoint(calc_inputs)
-
-        # 11b. Window/door sensor override
-        window_open = self._is_window_open()
-        window_delay_elapsed = self._is_window_delay_elapsed(window_open)
-        window_cooling = self._is_window_cooling_down()
-        window_active = (window_open and window_delay_elapsed) or window_cooling
-
-        # 11c. Adjacent room open check — pause correction, write scheduled setpoint
-        adjacent_open = self._is_adjacent_open()
-
-        # 12. Apply override via ramses_cc if not skipped.
-        # First cycle only computes (fresh sensor data at boot); the first
-        # zone write waits for the next staggered scheduled cycle.
-        if first_cycle:
-            _LOGGER.debug(
-                "OT %s first cycle: calc only, skipping zone write",
-                self.room_name,
-            )
-        elif not result.skipped and self._enabled and self._is_global_enabled():
-            primary = self._config.get(CONF_PRIMARY_CLIMATE, "")
-            override_entity = primary if primary else active
-            override_duration = int(
-                self._config.get(CONF_OVERRIDE_DURATION, DEFAULT_OVERRIDE_DURATION)
-            )
-            if window_active:
-                setpoint_to_write = float(
-                    self._config.get(CONF_WINDOW_SETPOINT, DEFAULT_WINDOW_SETPOINT)
-                )
-            elif adjacent_open:
-                setpoint_to_write = desired_ot
-            else:
-                setpoint_to_write = result.final_setpoint
-            if window_active:
-                _LOGGER.debug(
-                    "OT %s window override: writing %.1f°C (open=%s, delay_elapsed=%s, cooling=%s)",
-                    self.room_name,
-                    setpoint_to_write,
-                    window_open,
-                    window_delay_elapsed,
-                    window_cooling,
-                )
-            elif adjacent_open:
-                _LOGGER.debug(
-                    "OT %s adjacent open: reverting to scheduled setpoint %.1f°C",
-                    self.room_name,
-                    setpoint_to_write,
-                )
-            try:
-                await self.hass.services.async_call(
-                    "ramses_cc",
-                    "set_zone_mode",
-                    {
-                        "entity_id": override_entity,
-                        "setpoint": setpoint_to_write,
-                        "mode": "temporary_override",
-                        "duration": {"minutes": override_duration},
-                    },
-                )
-            except Exception:  # noqa: BLE001
-                _LOGGER.warning(
-                    "Failed to call ramses_cc.set_zone_mode for %s",
-                    self.room_name,
-                )
-
-        # 13. Operative temperature from calc result
-        operative_temp = result.operative_temp
-        mrt = result.mrt_result.mrt
-
-        # MRT baseline: very slow EMA for stable equilibrium estimate
-        mrt_baseline_prev = self._store.get("mrt_baseline")
-        if mrt_baseline_prev is not None:
-            mrt_baseline_prev = float(mrt_baseline_prev)
-            alpha_bl = DEFAULT_MRT_BASELINE_ALPHA
-            mrt_baseline = round(
-                alpha_bl * mrt + (1.0 - alpha_bl) * mrt_baseline_prev, 2
-            )
-        else:
-            mrt_baseline = mrt  # seed with first reading
-
-        # Equilibrium air target: the air temp needed for comfort given
-        # the slow-moving MRT baseline.  Factor of 0.5 accounts for
-        # thermostat cycling (air settles ~halfway between desired and
-        # full setpoint).
-        k = result.effective_k
-        equilibrium_target = round(
-            desired_ot + k * (desired_ot - mrt_baseline) * 0.5, 2
-        )
-
-        # 14. Adaptive coast tuning — based on operative temperature
-        # Coast only decays after 3 consecutive cycles at/above target,
-        # preventing the approach phase from eroding coast before it is used.
-        overshoot_count = self._store.get("overshoot_count", 0)
-        if not result.skipped and result.ot_rate > 0:
-            if operative_temp > desired_ot + 0.2:
-                # Overshoot — increase coast and reset stable counter
-                new_coast = min(
-                    10.0, self.get_number_value(CONF_COAST_CYCLES) + 0.5
-                )
-                self.set_number_value(CONF_COAST_CYCLES, new_coast)
-                self._stable_above_count = 0
-                overshoot_count += 1
-                self._store.set("overshoot_count", overshoot_count)
-            elif operative_temp >= desired_ot:
-                # At or near target — only decay after COAST_STABLE_CYCLES_THRESHOLD consecutive cycles (15 min)
-                self._stable_above_count += 1
-                if self._stable_above_count >= COAST_STABLE_CYCLES_THRESHOLD:
-                    new_coast = max(
-                        0.0, self.get_number_value(CONF_COAST_CYCLES) - 0.05
-                    )
-                    self.set_number_value(CONF_COAST_CYCLES, new_coast)
-                    self._stable_above_count = 0
-            else:
-                # Approaching from below — leave coast unchanged
-                self._stable_above_count = 0
-
-        # 15. Update store
-        self._store.set("previous_air_temp", air_temp)
-        self._store.set("previous_operative_temp", result.operative_temp)
-        self._store.set("mrt_baseline", mrt_baseline)
-        if not result.skipped:
-            self._store.set("previous_mrt", result.mrt_result.mrt)
-            self._store.set("previous_setpoint", result.final_setpoint)
-            self._store.set(
-                "previous_setpoint_time", dt_util.utcnow().isoformat()
-            )
-        await self._store.async_save()
-
+    async def _cycle(self) -> OTCoordinatorData:
         now = dt_util.utcnow()
-        return OTCoordinatorData(
-            result=result,
-            enabled=self._enabled,
-            overshoot_count=overshoot_count,
-            active_thermostat=active,
-            air_temp=air_temp,
-            last_run=now,
-            occupancy_status=occupancy_status,
-            active_offset=active_offset,
-            time_window_active=time_window_active,
-            operative_temp=operative_temp,
-            equilibrium_target=equilibrium_target,
-            mrt_baseline=mrt_baseline,
-            weather_severity=result.weather_severity,
-            effective_k=result.effective_k,
-            window_override_active=window_active,
-        )
+        now_local = dt_util.as_local(now)
+        fallbacks: list[str] = []
+        geometry = self._geometry
+        hub_data = self._hub()
+        d = OTCoordinatorData(mode=self._mode, enabled=self._enabled, last_run=now)
+        if geometry is not None:
+            d.geometry_warnings = list(geometry.warnings)
+            d.glazed_area_m2 = round(geometry.glazed_area_m2, 2)
+            d.total_area_m2 = round(geometry.total_area_m2, 1)
+            d.installed_output_dt50_w = sum(e.output_dt50_w for e in geometry.emitters) or None
+        elif self._geometry_error:
+            fallbacks.append(f"geometry: {self._geometry_error}")
 
-    def _skipped_data(self, reason: str) -> OTCoordinatorData:
-        """Return a skipped OTCoordinatorData with a dummy result."""
-        from .mrt import MRTResult
+        # --- target -------------------------------------------------------
+        zone = self._schedule()
+        d.schedule_setpoint, d.zone_setpoint = zone.schedule_setpoint, zone.current_setpoint
+        d.next_switchpoint_at, d.next_switchpoint_setpoint = zone.next_switchpoint_at, zone.next_switchpoint_setpoint
+        if zone.schedule_setpoint is None:
+            fallbacks.append("schedule setpoint unavailable")
 
-        dummy_mrt = MRTResult(
-            mrt=0.0,
-            operative_temp=0.0,
-            loss_term=0.0,
-            solar_term=0.0,
-            mrt_unclamped=0.0,
-            mrt_clamped=0.0,
-            radiation_used=0.0,
-            t_out_effective=0.0,
+        d.occupancy_status, d.occupancy_offset = self._occupancy(now_local)
+        d.time_window_active = self._within_time_window(now_local)
+
+        # --- environment and model -------------------------------------
+        env, env_info = self._environment(geometry, fallbacks)
+        d.outdoor_source = env_info.get("outdoor_source", "")
+        if env is not None:
+            d.outdoor_temp, d.wind_ms, d.ghi_wm2, d.cloud_fraction = env.t_out, env.wind_ms, env.ghi_wm2, env.cloud_fraction
+            if hub_data is not None:
+                d.running_mean_outdoor = hub_data.sample_outdoor(env.t_out, now_local)
+        d.air_temp, d.air_temp_source = self._air_temperature(geometry, fallbacks)
+
+        hub_cfg = self._hub_config()
+        if zone.schedule_setpoint is not None:
+            target = zone.schedule_setpoint + d.occupancy_offset
+            if bool(hub_cfg.get(CONF_ADAPTIVE_ENABLED, DEFAULT_ADAPTIVE_ENABLED)) and hub_data is not None and hub_data.running_mean_ready:
+                d.adaptive_shift = round(adaptive_target_shift(
+                    d.running_mean_outdoor,
+                    float(hub_cfg.get(CONF_ADAPTIVE_REF, DEFAULT_ADAPTIVE_REF)),
+                    float(hub_cfg.get(CONF_ADAPTIVE_SLOPE, DEFAULT_ADAPTIVE_SLOPE)),
+                ), 3)
+                target += d.adaptive_shift
+            d.target_ot = round(target, 2)
+
+        correction: Correction | None = None
+        if geometry is not None and env is not None and d.target_ot is not None and geometry.surfaces:
+            try:
+                correction = required_air_temperature(geometry.surfaces, env, d.target_ot, self._model_params(geometry))
+            except ValueError as exc:
+                fallbacks.append(f"model: {exc}")
+        if correction is not None:
+            d.mrt_steady_state = round(correction.mrt_at_setpoint, 2)
+            d.offset_physical = round(correction.offset_physical, 3)
+            d.offset_trusted = round(correction.offset_trusted, 3)
+            d.offset_asymmetry = round(correction.offset_asymmetry, 3)
+            d.offset_final = round(correction.offset_final, 3)
+            d.air_setpoint = correction.air_setpoint
+            d.capped = correction.capped
+            d.solar_k = round(correction.solar_k, 3)
+            d.sum_l = round(correction.sum_l, 4)
+            if d.air_temp is not None:
+                d.operative_temp = round(operative_temperature(d.air_temp, correction.mrt_at_setpoint), 2)
+
+        d.flow_temp_used = self._flow_temperature()
+        if geometry is not None and d.flow_temp_used is not None and d.air_temp is not None:
+            d.radiator_output_w = round(radiator_output_w(geometry.emitters, d.flow_temp_used, d.air_temp))
+
+        # --- policy -----------------------------------------------------------
+        window_ids = geometry.window_contacts if geometry else []
+        door_ids = geometry.adjacent_door_contacts if geometry else []
+        inputs = PolicyInputs(
+            now=now,
+            room_enabled=self._enabled,
+            hub_enabled=hub_data.global_enabled if hub_data else True,
+            holiday_mode=self._is_on(ENTITY_HOLIDAY_MODE) is True,
+            within_time_window=d.time_window_active,
+            shadow_mode=self._mode != MODE_ACTIVE,
+            computed_setpoint=d.air_setpoint,
+            zone=zone,
+            memory=self._memory(),
+            any_window_open=self._any_on(window_ids),
+            any_adjacent_door_open=self._any_on(door_ids),
+            params=self._policy_params(),
         )
-        dummy = OTCalcResult(
-            final_setpoint=0.0,
-            raw_setpoint=0.0,
-            mrt_result=dummy_mrt,
-            mrt_correction=0.0,
-            coast_prediction=0.0,
-            ot_rate=0.0,
-            cycles_to_target=999.0,
-            dynamic_coast_cycles=0.0,
-            desired_ot=0.0,
-            skipped=True,
-            skip_reason=reason,
-            operative_temp=0.0,
-            weather_severity=0.0,
-            effective_k=0.0,
+        decision = decide(inputs)
+        d.state, d.reason, d.action = decision.state.value, decision.reason, decision.action.value
+        d.would_write = decision.would_write if decision.state is State.SHADOW else decision.setpoint
+        d.window_override_active = decision.state is State.WINDOW_OPEN or (
+            decision.state is State.SHADOW and inputs.any_window_open
         )
-        _LOGGER.warning("OT %s skipped: %s", self.room_name, reason)
-        return OTCoordinatorData(
-            result=dummy,
-            enabled=self._enabled,
-            overshoot_count=self._store.get("overshoot_count", 0),
-            last_run=dt_util.utcnow(),
-        )
+        d.adjacent_door_open = inputs.any_adjacent_door_open
+        d.fallbacks = fallbacks
+
+        await self._perform(decision)
+        self._save_memory(decision.memory)
+        d.last_written_setpoint = decision.memory.last_written_setpoint
+        d.last_write = decision.memory.last_written_at
+        await self._store.async_save()
+        if hub_data is not None:
+            await hub_data.async_save()
+        return d

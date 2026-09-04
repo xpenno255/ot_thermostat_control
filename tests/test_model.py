@@ -178,3 +178,4 @@ def test_leakiness_guard():
     absurd = [Surface("hole", 10.0, 200.0, Boundary.OUTSIDE)]
     with pytest.raises(ValueError):
         required_air_temperature(absurd, Environment(t_out=0.0, **NIGHT), 20.0, FULL_TRUST)
+

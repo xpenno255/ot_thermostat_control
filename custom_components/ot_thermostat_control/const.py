@@ -171,3 +171,39 @@ ORIENTATION_AZIMUTHS: dict[str, float] = {
 # Heat transfer coefficients W/(m^2*K)
 H_R = 4.7  # radiant heat transfer coefficient
 H_C_STILL = 3.1  # convective, still air
+
+# ---------------------------------------------------------------------------
+# v2 configuration keys (design note §10)
+# ---------------------------------------------------------------------------
+CONF_HOUSE_DIR = "house_dir"                  # hub: directory holding house.yaml and rooms/
+DEFAULT_HOUSE_DIR = "ot_house"                # relative to the HA config directory
+CONF_ROOM_FILE = "room_file"                  # room: override of <house_dir>/rooms/<area>.yaml
+CONF_ROOM_ID = "room_id"                      # room: survey room id (defaults from name)
+CONF_MODE = "mode"                            # room: shadow | active
+MODE_SHADOW = "shadow"
+MODE_ACTIVE = "active"
+DEFAULT_MODE = MODE_SHADOW
+CONF_TRUST_K = "trust_k"
+DEFAULT_TRUST_K = 0.8
+CONF_CAP_UP = "cap_up"
+CONF_CAP_DOWN = "cap_down"
+DEFAULT_CAP = 1.5
+CONF_MANUAL_HOLD = "manual_hold_minutes"
+DEFAULT_MANUAL_HOLD = 120
+CONF_PREHEAT_RELEASE = "preheat_release_minutes"
+DEFAULT_PREHEAT_RELEASE = 60
+CONF_ASYMMETRY_ENABLED = "asymmetry_enabled"
+CONF_IRRADIANCE_SENSOR = "irradiance_sensor"
+CONF_FLOW_TEMP_ENTITY = "flow_temp_entity"
+CONF_DHW_ACTIVE_ENTITY = "dhw_active_entity"
+CONF_MANUAL_FLOW_TEMP = "manual_flow_temp"
+DEFAULT_MANUAL_FLOW_TEMP = 50.0
+CONF_ADAPTIVE_ENABLED = "adaptive_enabled"
+DEFAULT_ADAPTIVE_ENABLED = True
+CONF_ADAPTIVE_SLOPE = "adaptive_slope"
+DEFAULT_ADAPTIVE_SLOPE = 0.05
+CONF_ADAPTIVE_REF = "adaptive_reference"
+DEFAULT_ADAPTIVE_REF = 10.0
+CONF_GROUND_TEMP = "ground_temp"
+DEFAULT_GROUND_TEMP = 10.0
+THERMOSTAT_STEP = 0.5
