@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, ENTRY_TYPE_HUB
 from .hub import OTHubData
+from .migration import async_migrate_entry, async_remove_stale_entities  # noqa: F401  (re-exported for HA)
 from .store import OTStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ async def _async_setup_hub_entry(hass: HomeAssistant, entry: ConfigEntry) -> boo
     hub_data.load()
     entry.runtime_data = hub_data
     hass.data[DOMAIN]["hub"] = {"config": {**entry.data, **entry.options}, "data": hub_data}
+    async_remove_stale_entities(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, HUB_PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_hub_options_updated))
     return True
@@ -51,6 +53,7 @@ async def _async_setup_room_entry(hass: HomeAssistant, entry: ConfigEntry) -> bo
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     hass.data[DOMAIN]["rooms"][coordinator.room_id] = coordinator
+    async_remove_stale_entities(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, ROOM_PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_update_options))
     return True

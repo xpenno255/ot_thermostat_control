@@ -192,9 +192,11 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         self._geometry: RoomGeometry | None = None
         self._geometry_error: str | None = None
         self._tunables: dict[str, float] = {}
+        hub_cfg = (hass.data.get(DOMAIN, {}).get("hub") or {}).get("config") or {}
         for key, default in ((CONF_TRUST_K, DEFAULT_TRUST_K), (CONF_CAP_UP, DEFAULT_CAP), (CONF_CAP_DOWN, DEFAULT_CAP)):
             stored = store.get(key)
-            self._tunables[key] = float(stored if stored is not None else self._config.get(key, default))
+            fallback = self._config.get(key, hub_cfg.get(key, default))  # room override > hub default > built-in
+            self._tunables[key] = float(stored if stored is not None else fallback)
         interval = timedelta(minutes=float(self._config.get(CONF_RUN_INTERVAL, DEFAULT_RUN_INTERVAL)))
         super().__init__(hass, _LOGGER, config_entry=entry, name=f"OT {self.room_name}", update_interval=interval)
 

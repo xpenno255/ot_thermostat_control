@@ -73,13 +73,13 @@ async def _setup(hass: HomeAssistant, mode: str) -> tuple[MockConfigEntry, MockC
     _set_states(hass)
 
     hub = MockConfigEntry(
-        domain=DOMAIN, title="OT Global Settings", entry_id=_uid("hub"),
+        domain=DOMAIN, title="OT Global Settings", entry_id=_uid("hub"), version=2,
         data={"entry_type": ENTRY_TYPE_HUB, CONF_WEATHER_ENTITY: "weather.home",
               CONF_OUTDOOR_TEMP_SENSOR: "sensor.met_office_weoley_castle_temperature",
               CONF_HOUSE_DIR: str(FIXTURES)},
     )
     room = MockConfigEntry(
-        domain=DOMAIN, title="Living Room", entry_id=_uid("room"),
+        domain=DOMAIN, title="Living Room", entry_id=_uid("room"), version=2,
         data={"entry_type": ENTRY_TYPE_ROOM, CONF_NAME: "Living Room", CONF_ROOM_ID: "living_room",
               CONF_PRIMARY_CLIMATE: "climate.living_room_2", CONF_BACKUP_CLIMATE: "climate.living_room",
               CONF_MODE: mode},
@@ -158,9 +158,9 @@ async def test_missing_room_file_is_reported_not_fatal(hass: HomeAssistant):
     calls: list = []
     hass.services.async_register("ramses_cc", "set_zone_mode", lambda call: calls.append(call))
     _set_states(hass)
-    hub = MockConfigEntry(domain=DOMAIN, entry_id=_uid("hub"),
+    hub = MockConfigEntry(domain=DOMAIN, entry_id=_uid("hub"), version=2,
                           data={"entry_type": ENTRY_TYPE_HUB, CONF_WEATHER_ENTITY: "weather.home", CONF_HOUSE_DIR: str(FIXTURES)})
-    room = MockConfigEntry(domain=DOMAIN, entry_id=_uid("room"),
+    room = MockConfigEntry(domain=DOMAIN, entry_id=_uid("room"), version=2,
                            data={"entry_type": ENTRY_TYPE_ROOM, CONF_NAME: "Nowhere", CONF_ROOM_ID: "nowhere",
                                  CONF_PRIMARY_CLIMATE: "climate.living_room_2", CONF_BACKUP_CLIMATE: "climate.living_room"})
     hub.add_to_hass(hass); room.add_to_hass(hass)
