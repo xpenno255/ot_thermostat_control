@@ -1,0 +1,151 @@
+# Studio — extracted from floor plans 2026-09-04 plus Home Assistant registry.
+# See ../README.md for conventions. Anything null still needs measuring on site.
+room:
+  id: studio
+  name: Studio
+  floor: first_floor
+  use: study
+  heated: true
+geometry:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  source: floor_plan
+  length_m: 3.04
+  width_m: 3.3
+  height_m: 2.4
+  floor_area_m2: 10.0
+  volume_m3: 24.0
+  shape_notes: Rectangle 3.30 (E-W) x 3.04 (N-S), NE corner of the first floor, over the E end of the kitchen. Desk
+    on plan. Ceiling height 2.4 m measured by owner 2026-09-04.
+boundaries:
+  measured_on: '2026-09-04'
+  confidence: estimated
+  notes: 'Compass labels are the house''s own axes: N=7 deg, E=97 deg, S=187 deg, W=277 deg (front door bearing
+    ~187 deg from satellite image, +/-5 deg). See house.yaml face_bearings_deg.'
+  faces:
+  - face: north
+    boundary: outside
+    construction: external_wall_main
+    gross_area_m2: 7.9
+    adjacent: null
+    notes: Window.
+  - face: east
+    boundary: outside
+    construction: external_wall_main
+    gross_area_m2: 7.3
+    adjacent: null
+    notes: Blank external wall.
+  - face: west
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 7.3
+    adjacent: toilet (first floor), landing
+  - face: south
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 7.9
+    adjacent: bedroom_2
+  - face: floor
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 10.0
+    adjacent: kitchen
+  - face: ceiling
+    boundary: loft
+    construction: roof_loft
+    gross_area_m2: 10.0
+    adjacent: null
+    notes: ~400 mm mineral wool above, cold slate roof. Loft close to outdoor temperature.
+openings:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  notes: Measured by owner 2026-09-04.
+  items:
+  - id: window_north
+    type: window
+    face: north
+    width_m: 1.264
+    height_m: 1.144
+    area_m2: 1.45
+    construction: window_timber_dg
+    frame: timber
+    covering: null
+    covering_closed_at_night: null
+    openable: true
+    contact_sensor: null
+    notes: Measured by owner 2026-09-04 (width x height incl. frame).
+heating:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  zone_id: 01:144444_05
+  climate_primary: climate.ramses_cc_01_144444_05
+  climate_backup: climate.studio
+  emitters:
+  - plan_number: 10
+    type: radiator
+    style: K1
+    height_m: 0.6
+    length_m: 1.2
+    wall: north
+    under_window: true
+    position: Under the N window.
+    trv: HR92
+    trv_device_id: 04:068657
+    trv_entity: sensor.04_068657_temperature
+    trv_binding_confidence: surveyed
+    style_detail: type_11_single_panel_single_convector
+    manufacturer: Stelrad
+    orientation: horizontal
+    output_dt50_w: 1242
+    output_source: generic Stelrad Compact catalogue W/m for 600 mm panels; replace with the exact model figure
+      if known
+    dimensions_confidence: surveyed
+  zone_sensor:
+    location: wall_stat
+    model: T87RF round thermostat (ramses device type 34)
+    device_id: 34:118067
+    entity: sensor.34_118067_temperature
+    height_m: null
+    notes: Zone temperature comes from this round stat, not the HR92. A second round stat 34:006837 is known to
+      the controller but unavailable; not bound to any zone.
+    position: 'Plan mark X: S wall (internal wall shared with Bedroom 2), roughly mid-wall. Good position: internal
+      wall, away from radiator 10 and the window.'
+  preferred_air_temperature_entity: sensor.34_118067_temperature
+  notes: Actuator and sensor bindings read from the ramses_cc schema in HA on 2026-09-04.
+  emitter_notes: Plan numbers refer to floor_plans/House_*_Rads.png (2026-09-04). Lengths scaled from plan, ±0.15
+    m. Which HR92 device sits on which radiator is not yet known where a zone has two.
+  installed_output_dt50_w: 1242
+sensors:
+  temperature:
+  - sensor.everything_presence_one_d5282c_temperature
+  humidity:
+  - sensor.everything_presence_one_d5282c_humidity
+  occupancy:
+  - binary_sensor.studio_occupancy
+  - binary_sensor.everything_presence_one_d5282c_occupancy
+  motion:
+  - binary_sensor.everything_presence_one_d5282c_pir
+  illuminance: []
+  contacts:
+  - binary_sensor.01_144444_05_window_open
+  other: []
+  positions:
+    sensor.34_118067_temperature: T87RF round stat, see zone_sensor.position
+    sensor.everything_presence_one_d5282c_temperature: 'EP One: N wall directly beside/above radiator 10. Radiator
+      plume plus self-heating, unusable.'
+  air_temperature_decision: Use the round stat.
+  position_notes: Positions from the marked plans floor_plans/House_*_Rads.png (2026-09-04); heights not yet recorded.
+usage:
+  occupied_pattern: null
+  typical_activity: seated
+  typical_clothing_clo: 1.0
+  internal_gains_w: null
+  draught_sources: []
+  notes: Only temperature reading is the EP One, which self-heats. Add a Zigbee sensor.
+model:
+  measured_on: null
+  confidence: unknown
+  effective_loss_coefficient: null
+  solar_gain_notes: 'Two external walls (N, E), one N window: cold corner room with almost no solar gain.'
+  thermal_camera_survey: null
+photos: []

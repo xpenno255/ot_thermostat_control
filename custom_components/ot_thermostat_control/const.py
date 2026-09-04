@@ -175,8 +175,8 @@ H_C_STILL = 3.1  # convective, still air
 # ---------------------------------------------------------------------------
 # v2 configuration keys (design note §10)
 # ---------------------------------------------------------------------------
-CONF_HOUSE_DIR = "house_dir"                  # hub: directory holding house.yaml and rooms/
-DEFAULT_HOUSE_DIR = "ot_house"                # relative to the HA config directory
+CONF_HOUSE_DIR = "house_dir"                  # hub: optional override of the survey directory
+DEFAULT_HOUSE_DIR = "house"                   # bundled: custom_components/ot_thermostat_control/house/
 CONF_ROOM_FILE = "room_file"                  # room: override of <house_dir>/rooms/<area>.yaml
 CONF_ROOM_ID = "room_id"                      # room: survey room id (defaults from name)
 CONF_MODE = "mode"                            # room: shadow | active

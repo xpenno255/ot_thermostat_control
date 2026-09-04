@@ -1,0 +1,178 @@
+# Utility — extracted from floor plans 2026-09-04 plus Home Assistant registry.
+# See ../README.md for conventions. Anything null still needs measuring on site.
+room:
+  id: utility
+  name: Utility
+  floor: ground_floor
+  use: utility
+  heated: true
+geometry:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  source: floor_plan
+  length_m: 3.21
+  width_m: 2.16
+  height_m: 2.16
+  floor_area_m2: 6.9
+  volume_m3: 14.9
+  shape_notes: 'Rectangle 3.21 (E-W) x 2.16 (N-S) projecting N of the kitchen line. Single storey: roof above, no
+    room over it.'
+boundaries:
+  measured_on: '2026-09-04'
+  confidence: estimated
+  notes: 'Compass labels are the house''s own axes: N=7 deg, E=97 deg, S=187 deg, W=277 deg (front door bearing
+    ~187 deg from satellite image, +/-5 deg). See house.yaml face_bearings_deg.'
+  faces:
+  - face: north
+    boundary: outside
+    construction: external_wall_extension
+    gross_area_m2: 6.9
+    adjacent: null
+    notes: External door and window.
+  - face: east
+    boundary: outside
+    construction: external_wall_extension
+    gross_area_m2: 4.7
+    adjacent: null
+  - face: west
+    boundary: outside
+    construction: external_wall_extension
+    gross_area_m2: 2.3
+    adjacent: null
+    notes: Only the ~1.05 m that projects N of the kitchen is external; the rest is the kitchen wall.
+  - face: west
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 2.3
+    adjacent: kitchen
+  - face: south
+    boundary: unheated_space
+    construction: wall_to_unheated
+    gross_area_m2: 4.8
+    adjacent: garage
+    notes: Garage behind ~2.2 m of this wall.
+  - face: south
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 2.2
+    adjacent: hall (side lobby)
+  - face: floor
+    boundary: ground
+    construction: ground_floor_solid_1980s
+    gross_area_m2: 6.9
+    adjacent: null
+  - face: ceiling
+    boundary: roof
+    construction: roof_extension
+    gross_area_m2: 6.9
+    adjacent: null
+    notes: Single-storey roof; check insulation level, this is likely the leakiest ceiling in the house.
+openings:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  notes: Measured by owner 2026-09-04 unless an item says otherwise.
+  items:
+  - id: door_north
+    type: glazed_door
+    face: north
+    width_m: 0.9
+    height_m: 2.0
+    area_m2: 1.8
+    construction: external_door_glazed
+    frame: timber
+    covering: null
+    covering_closed_at_night: null
+    openable: false
+    contact_sensor: null
+    notes: External door, part glazed (owner 2026-09-04). Size still assumed 0.9 x 2.0 m. g_value reduced to reflect
+      a partial pane.
+    g_value: 0.25
+  - id: window_north
+    type: window
+    face: north
+    width_m: 1.767
+    height_m: 1.01
+    area_m2: 1.78
+    construction: window_timber_dg
+    frame: timber
+    covering: null
+    covering_closed_at_night: null
+    openable: true
+    contact_sensor: null
+    notes: Measured by owner 2026-09-04 (width x height incl. frame).
+heating:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  zone_id: 01:144444_08
+  climate_primary: climate.ramses_cc_01_144444_08
+  climate_backup: climate.utility
+  emitters:
+  - plan_number: 7
+    type: radiator
+    style: K1
+    height_m: 0.6
+    length_m: 1.6
+    wall: south
+    under_window: false
+    position: On the garage wall.
+    trv: HR92
+    trv_device_id: 04:134503
+    trv_entity: sensor.04_134503_temperature
+    trv_binding_confidence: surveyed
+    style_detail: type_11_single_panel_single_convector
+    manufacturer: Stelrad
+    orientation: horizontal
+    output_dt50_w: 1656
+    output_source: generic Stelrad Compact catalogue W/m for 600 mm panels; replace with the exact model figure
+      if known
+    dimensions_confidence: surveyed
+  zone_sensor:
+    location: trv
+    model: HR92
+    device_id: 04:134503
+    entity: sensor.04_134503_temperature
+    height_m: null
+    notes: 'No zone sensor bound (schema sensor: null), so the HR92 on the radiator is the zone sensor and reads
+      high while heating.'
+  preferred_air_temperature_entity: sensor.utility_motion_sensor_temperature
+  notes: Actuator and sensor bindings read from the ramses_cc schema in HA on 2026-09-04.
+  emitter_notes: Plan numbers refer to floor_plans/House_*_Rads.png (2026-09-04). Lengths scaled from plan, ±0.15
+    m. Which HR92 device sits on which radiator is not yet known where a zone has two.
+  installed_output_dt50_w: 1656
+sensors:
+  temperature:
+  - sensor.utility_motion_sensor_temperature
+  humidity: []
+  occupancy:
+  - binary_sensor.utility_occupancy
+  - binary_sensor.utility_aqara_motion_sensor_occupancy
+  - binary_sensor.utility_motion_sensor
+  motion:
+  - binary_sensor.utility_aqara_motion_sensor
+  illuminance: []
+  contacts:
+  - binary_sensor.01_144444_08_window_open
+  other: []
+  positions:
+    sensor.utility_motion_sensor_temperature: 'Plan mark H: Hue SML003 on the N wall, W of centre, above the appliances
+      near the external door.'
+    binary_sensor.utility_aqara_motion_sensor_occupancy: 'Plan mark A: NE corner. No temperature sensor on this
+      model.'
+  air_temperature_decision: Use the Hue SML003; only reading available. Near the external door so it will see draughts.
+  position_notes: Positions from the marked plans floor_plans/House_*_Rads.png (2026-09-04); heights not yet recorded.
+usage:
+  occupied_pattern: null
+  typical_activity: light_activity
+  typical_clothing_clo: 1.0
+  internal_gains_w: null
+  draught_sources: []
+  notes: Appliance gains (washer/dryer) are intermittent and large for a 7 m2 room. v1 runs this zone with correction_gain
+    0, effectively schedule-only.
+model:
+  measured_on: null
+  confidence: unknown
+  effective_loss_coefficient: null
+  solar_gain_notes: 'Three external walls, roof above and garage alongside: highest loss per m2 in the house. Only
+    temperature reading is a Hue motion sensor.'
+  thermal_camera_survey: null
+photos: []

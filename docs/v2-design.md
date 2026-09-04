@@ -174,7 +174,7 @@ Hard (v2 cannot run a room without them):
 | Scheduled target | **evohome** (cloud) | `status.setpoints.this_sp_temp / next_sp_temp / next_sp_from`; ramses `schedule` attribute is null on most zones so this is effectively required |
 | Outdoor temperature and wind | **Met Office** | falls back to met.no `weather.home`, then to a hub manual value with `status` flagging it |
 | Sun position | core `sun.sun` | — |
-| Room geometry | **House survey YAML** | must be present on the HA host's filesystem (e.g. `/config/ot_house/`), synced from the Homelab repo; not read over the network |
+| Room geometry | **House survey YAML**, shipped in `custom_components/ot_thermostat_control/house/` | deployed by HACS with the code; hub option `house_dir` can point elsewhere |
 
 Soft (improve the answer; documented fallback when absent):
 
@@ -323,7 +323,7 @@ coordinator is glue. This is what issues #1–#5 asked for.
 - Flow temperature read live from ems-esp, DHW-gated, manual fallback.
 - Running mean outdoor temperature computed and persisted in the hub.
 - OT = (T_air + MRT)/2, one definition.
-- Room geometry lives in `House/` YAML, not in the integration.
+- Room geometry lives in YAML shipped with the integration (`house/`), not in config entries. Owner accepted publishing it in the public repo (2026-09-04).
 
 ## 14. Open questions
 

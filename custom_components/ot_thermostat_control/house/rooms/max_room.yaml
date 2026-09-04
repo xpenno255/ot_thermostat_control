@@ -1,0 +1,148 @@
+# Max Room — extracted from floor plans 2026-09-04 plus Home Assistant registry.
+# See ../README.md for conventions. Anything null still needs measuring on site.
+room:
+  id: max_room
+  name: Max Room
+  floor: first_floor
+  use: bedroom
+  heated: true
+geometry:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  source: floor_plan
+  length_m: 2.91
+  width_m: 2.51
+  height_m: 2.4
+  floor_area_m2: 7.3
+  volume_m3: 17.5
+  shape_notes: Small bedroom, rectangle 2.51 (E-W) x ~2.91 (N-S), top middle of the first floor, over the kitchen.
+    Ceiling height 2.4 m measured by owner 2026-09-04.
+boundaries:
+  measured_on: '2026-09-04'
+  confidence: estimated
+  notes: 'Compass labels are the house''s own axes: N=7 deg, E=97 deg, S=187 deg, W=277 deg (front door bearing
+    ~187 deg from satellite image, +/-5 deg). See house.yaml face_bearings_deg.'
+  faces:
+  - face: north
+    boundary: outside
+    construction: external_wall_main
+    gross_area_m2: 6.0
+    adjacent: null
+    notes: Window.
+  - face: west
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 7.0
+    adjacent: bedroom
+  - face: east
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 7.0
+    adjacent: toilet (first floor)
+  - face: south
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 6.0
+    adjacent: landing
+  - face: floor
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 7.3
+    adjacent: kitchen
+  - face: ceiling
+    boundary: loft
+    construction: roof_loft
+    gross_area_m2: 7.3
+    adjacent: null
+    notes: ~400 mm mineral wool above, cold slate roof. Loft close to outdoor temperature.
+openings:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  notes: Measured by owner 2026-09-04.
+  items:
+  - id: window_north
+    type: window
+    face: north
+    width_m: 1.276
+    height_m: 1.146
+    area_m2: 1.46
+    construction: window_timber_dg
+    frame: timber
+    covering: null
+    covering_closed_at_night: null
+    openable: true
+    contact_sensor: null
+    notes: Measured by owner 2026-09-04 (width x height incl. frame).
+heating:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  zone_id: 01:144444_07
+  climate_primary: climate.ramses_cc_01_144444_07
+  climate_backup: climate.max_room
+  emitters:
+  - plan_number: 9
+    type: radiator
+    style: K2
+    height_m: 0.6
+    length_m: 1.0
+    wall: north
+    under_window: true
+    position: Under the N window.
+    trv: HR92
+    trv_device_id: 04:107763
+    trv_entity: sensor.04_107763_temperature
+    trv_binding_confidence: surveyed
+    style_detail: type_22_double_panel_double_convector
+    manufacturer: Stelrad
+    orientation: horizontal
+    output_dt50_w: 1780
+    output_source: generic Stelrad Compact catalogue W/m for 600 mm panels; replace with the exact model figure
+      if known
+    dimensions_confidence: surveyed
+  zone_sensor:
+    location: trv
+    model: HR92
+    device_id: 04:107763
+    entity: sensor.04_107763_temperature
+    height_m: null
+    notes: 'No zone sensor bound (schema sensor: null), so the HR92 on the radiator is the zone sensor and reads
+      high while heating.'
+  preferred_air_temperature_entity: null
+  notes: Actuator and sensor bindings read from the ramses_cc schema in HA on 2026-09-04.
+  emitter_notes: Plan numbers refer to floor_plans/House_*_Rads.png (2026-09-04). Lengths scaled from plan, ±0.15
+    m. Which HR92 device sits on which radiator is not yet known where a zone has two.
+  installed_output_dt50_w: 1780
+sensors:
+  temperature: []
+  humidity: []
+  occupancy: []
+  motion: []
+  illuminance: []
+  contacts:
+  - binary_sensor.01_144444_07_window_open
+  other: []
+  air_temperature_decision: 'Owner decision: use the HR92 on radiator 9 (sensor.04_107763_temperature). Expect it
+    to read high while heating; v2 treats TRV-sourced air temperature with a heating-state correction.'
+  planned_air_temperature_sensor:
+    action: optional add (owner currently prefers the HR92)
+    wall: east (first-floor toilet party wall), mid-way
+    height_m: 1.0
+    avoid: radiator 9 and the N window
+    why: would replace a TRV-sourced reading that runs high while heating
+    status: not installed
+    entity: null
+    installed_on: null
+usage:
+  occupied_pattern: null
+  typical_activity: sleeping
+  typical_clothing_clo: 1.5
+  internal_gains_w: null
+  draught_sources: []
+  notes: No temperature or occupancy sensor of any kind in HA. Zone runs on the HR92 alone. Add a Zigbee sensor.
+model:
+  measured_on: null
+  confidence: unknown
+  effective_loss_coefficient: null
+  solar_gain_notes: One external wall (N). Little solar gain.
+  thermal_camera_survey: null
+photos: []

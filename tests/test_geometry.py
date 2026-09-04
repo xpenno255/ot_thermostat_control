@@ -7,7 +7,7 @@ from conftest import FIXTURES
 from core.geometry import load_all_rooms, load_house, load_room
 from core.model import Boundary, Environment, ModelParams, required_air_temperature
 
-HOUSE_DIR = Path(__file__).resolve().parents[4] / "House"  # live survey, if present
+HOUSE_DIR = Path(__file__).resolve().parents[1] / "custom_components" / "ot_thermostat_control" / "house"  # shipped survey
 
 
 def test_house_constructions_and_bearings():
@@ -118,8 +118,7 @@ openings:
     assert any("floor_area_m2 missing" in w for w in r.warnings)
 
 
-@pytest.mark.skipif(not HOUSE_DIR.exists(), reason="live House survey not present")
-def test_live_house_loads_every_room_without_skips():
+def test_shipped_house_loads_every_room_without_skips():
     house, rooms = load_all_rooms(HOUSE_DIR)
     assert len(rooms) == 9
     for r in rooms.values():

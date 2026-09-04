@@ -252,9 +252,11 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
 
     def _house_dir(self) -> Path:
         hub = self._hub_config()
-        raw = str(hub.get(CONF_HOUSE_DIR) or DEFAULT_HOUSE_DIR)
-        p = Path(raw)
-        return p if p.is_absolute() else Path(self.hass.config.path(raw))
+        raw = hub.get(CONF_HOUSE_DIR)
+        if not raw:
+            return Path(__file__).parent / DEFAULT_HOUSE_DIR  # shipped with the integration
+        p = Path(str(raw))
+        return p if p.is_absolute() else Path(self.hass.config.path(str(raw)))
 
     def _load_geometry_sync(self) -> RoomGeometry:
         house_dir = self._house_dir()
