@@ -1,6 +1,6 @@
 # OT Thermostat Control v2 — design note
 
-Status: 2026-09-04. Built and tested on the `v2` branch: `core/model.py`, `core/geometry.py`, `core/policy.py`, `hub.py`, `coordinator.py` and all entity platforms (52 tests, integration tests under HA 2026.9). Not yet done: config flow for the new options, migration of v1 entries, deployment to the live instance in shadow mode.
+Status: 2026-09-04. Built and tested on the `v2` branch: `core/model.py`, `core/geometry.py`, `core/policy.py`, `hub.py`, `coordinator.py` and all entity platforms (52 tests, integration tests under HA 2026.9). v2.0.1 deployed to the live instance 2026-09-04 via HACS; all nine rooms migrated and running in shadow mode. Known follow-up: the 60 s startup retry did not fire on first deployment (rooms recovered on the next 5-minute tick).
 
 ## 1. What v2 claims
 
