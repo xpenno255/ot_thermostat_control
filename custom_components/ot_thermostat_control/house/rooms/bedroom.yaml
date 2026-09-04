@@ -1,0 +1,187 @@
+# Bedroom — extracted from floor plans 2026-09-04 plus Home Assistant registry.
+# See ../README.md for conventions. Anything null still needs measuring on site.
+room:
+  id: bedroom
+  name: Bedroom
+  floor: first_floor
+  use: bedroom
+  heated: true
+geometry:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  source: floor_plan
+  length_m: 5.15
+  width_m: 3.25
+  height_m: 2.4
+  floor_area_m2: 16.7
+  volume_m3: 40.1
+  shape_notes: Master bedroom, rectangle 3.25 (E-W) x 5.15 (N-S) at the W end of the first floor, over the living
+    room. Ceiling height 2.4 m measured by owner 2026-09-04.
+boundaries:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  notes: 'Compass labels are the house''s own axes: N=7 deg, E=97 deg, S=187 deg, W=277 deg (front door bearing
+    ~187 deg from satellite image, +/-5 deg). See house.yaml face_bearings_deg.'
+  faces:
+  - face: west
+    boundary: outside
+    construction: external_wall_main
+    gross_area_m2: 12.4
+    adjacent: null
+    notes: Blank external wall.
+  - face: north
+    boundary: outside
+    construction: external_wall_main
+    gross_area_m2: 7.8
+    adjacent: null
+    notes: External wall. The first floor ends here; the ground-floor extension continues N beyond it (rear overhang).
+  - face: south
+    boundary: outside
+    construction: external_wall_main
+    gross_area_m2: 7.8
+    adjacent: null
+    notes: External wall, confirmed by owner 2026-09-04; aligned with the living room's S wall. Window.
+  - face: east
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 12.4
+    adjacent: max_room, landing, bathroom
+  - face: floor
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 16.7
+    adjacent: living_room
+  - face: ceiling
+    boundary: loft
+    construction: roof_loft
+    gross_area_m2: 16.7
+    adjacent: null
+    notes: ~400 mm mineral wool above, cold slate roof. Loft close to outdoor temperature.
+openings:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  notes: Measured by owner 2026-09-04.
+  items:
+  - id: window_north
+    type: window
+    face: north
+    width_m: 1.245
+    height_m: 1.146
+    area_m2: 1.43
+    construction: window_timber_dg
+    frame: timber
+    covering: null
+    covering_closed_at_night: null
+    openable: true
+    contact_sensor: null
+    notes: Measured by owner 2026-09-04 (width x height incl. frame).
+  - id: window_south
+    type: window
+    face: south
+    width_m: 1.878
+    height_m: 1.146
+    area_m2: 2.15
+    construction: window_timber_dg
+    frame: timber
+    covering: null
+    covering_closed_at_night: null
+    openable: true
+    contact_sensor: null
+    notes: Measured by owner 2026-09-04 (width x height incl. frame).
+heating:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  zone_id: 01:144444_03
+  climate_primary: climate.bedroom_3
+  climate_backup: climate.bedroom
+  emitters:
+  - plan_number: 8
+    type: radiator
+    style: P+
+    height_m: 0.6
+    length_m: 1.8
+    wall: south
+    under_window: true
+    position: Under the S window.
+    trv: HR92
+    trv_device_id: 04:218153
+    trv_entity: sensor.04_218153_temperature
+    trv_binding_confidence: surveyed
+    style_detail: type_21_double_panel_single_convector
+    manufacturer: Stelrad
+    orientation: horizontal
+    output_dt50_w: 2592
+    output_source: generic Stelrad Compact catalogue W/m for 600 mm panels; replace with the exact model figure
+      if known
+    dimensions_confidence: surveyed
+  zone_sensor:
+    location: trv
+    model: HR92
+    device_id: 04:218153
+    entity: sensor.04_218153_temperature
+    height_m: null
+    notes: 'No zone sensor bound (schema sensor: null), so the HR92 on the radiator is the zone sensor and reads
+      high while heating.'
+  preferred_air_temperature_entity: sensor.bedroom_temp_humidity_temperature
+  notes: Actuator and sensor bindings read from the ramses_cc schema in HA on 2026-09-04.
+  emitter_notes: Plan numbers refer to floor_plans/House_*_Rads.png (2026-09-04). Lengths scaled from plan, ±0.15
+    m. Which HR92 device sits on which radiator is not yet known where a zone has two.
+  installed_output_dt50_w: 2592
+sensors:
+  temperature:
+  - sensor.bedroom_temp_hum_temperature
+  - sensor.bedroom_temp_hum_temperature_2
+  - sensor.bedroom_motion_sensor_1_temperature
+  - sensor.bedroom_motion_sensor_2_temperature
+  - sensor.bedroom_echo_temperature
+  humidity:
+  - sensor.bedroom_temp_hum_humidity
+  - sensor.bedroom_temp_hum_humidity_2
+  occupancy:
+  - binary_sensor.bedroom_occupancy
+  - binary_sensor.eplite_bedroom_occupancy
+  - binary_sensor.bedroom_motion_sensor_1
+  - binary_sensor.bedroom_motion_sensor_2
+  motion: []
+  illuminance: []
+  contacts:
+  - binary_sensor.01_144444_03_window_open
+  other:
+  - sensor.climate_setpoint_bedroom
+  - sensor.everything_presence_lite_ccbb44_co2
+  positions:
+    sensor.bedroom_temp_humidity_temperature: 'Plan mark G: H5100 ''Bedroom Temp Humidity'', S wall E end, about
+      0.3 m E of radiator 8. Radiator-biased while heating.'
+    sensor.bedroom_temp_hum_temperature: 'Second H5100 ''Bedroom Temp Hum'': flat batteries, not a stale device
+      (owner 2026-09-04). Position not marked.'
+    eplite ccbb44 (plan mark E): W wall S end. CO2 and presence only; EP Lite has no temperature sensor.
+    sensor.bedroom_motion_sensor_1_temperature / _2: two Hue SML003 with temperature, positions not marked
+  air_temperature_decision: Use 'Bedroom Temp Humidity' (G) as the canonical H5100 for now. It sits beside radiator
+    8, so move it to the W wall at ~1.2 m or use the second H5100 if that one is better placed.
+  position_notes: Positions from the marked plans floor_plans/House_*_Rads.png (2026-09-04); heights not yet recorded.
+  planned_air_temperature_sensor:
+    action: move existing H5100 'Bedroom Temp Humidity'
+    wall: east (Max Room / landing party wall), about mid-way along
+    height_m: 1.0
+    avoid: radiator 8, both windows, the door swing
+    why: internal wall, bed height for sleeping comfort, >2 m from the radiator
+    status: not installed
+    entity: null
+    installed_on: null
+usage:
+  occupied_pattern: null
+  typical_activity: sleeping
+  typical_clothing_clo: 1.5
+  internal_gains_w: null
+  draught_sources:
+  - MEV extract vent (speed ramps on CO2 from sensor.everything_presence_lite_ccbb44_co2)
+  notes: 'Two H5100 sensors; pick one as canonical. Night-time comfort under a duvet is a different problem to daytime
+    OT. MEV extract point in this room: a CO2-triggered purge removes heated air directly; expect the zone to fall
+    during and after a purge.'
+model:
+  measured_on: null
+  confidence: unknown
+  effective_loss_coefficient: null
+  solar_gain_notes: Three external walls (W, N, S) with windows N and S.  Gets both morning and afternoon sun.
+  thermal_camera_survey: null
+photos: []

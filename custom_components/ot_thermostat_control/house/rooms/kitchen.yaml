@@ -1,0 +1,232 @@
+# Kitchen — extracted from floor plans 2026-09-04 plus Home Assistant registry.
+# See ../README.md for conventions. Anything null still needs measuring on site.
+room:
+  id: kitchen
+  name: Kitchen
+  floor: ground_floor
+  use: kitchen
+  heated: true
+geometry:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  source: floor_plan
+  length_m: 6.96
+  width_m: 4.87
+  height_m: 2.39
+  floor_area_m2: 33.9
+  volume_m3: 81.0
+  shape_notes: Rectangle 6.96 (E-W) x 4.87 (N-S). Open-plan kitchen/diner; island in the centre. Chimney/structure
+    0.60 x 2.34 m on the W wall shared with the living room. The N part of the kitchen is the 1980s extension (flat
+    roof, no first floor); the S part is original with rooms above. Extension projects 1.84 m beyond the original
+    rear wall (owner 2026-09-04).
+boundaries:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  notes: 'Compass labels are the house''s own axes: N=7 deg, E=97 deg, S=187 deg, W=277 deg (front door bearing
+    ~187 deg from satellite image, +/-5 deg). See house.yaml face_bearings_deg.'
+  faces:
+  - face: north
+    boundary: outside
+    construction: external_wall_extension
+    gross_area_m2: 16.6
+    adjacent: null
+    notes: '1980s extension wall: bifold plus one window.'
+  - face: east
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 11.7
+    adjacent: utility, rear hallway
+    notes: Northern ~1 m against the utility, remainder against the side lobby (part of hall zone).
+  - face: south
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 16.6
+    adjacent: hall, study
+    notes: Internal door to the front hall carries binary_sensor.kitchen_door_sensor_opening.
+  - face: west
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 11.7
+    adjacent: living_room
+    notes: Living room wall carries the chimney breast (0.60 x 2.34 m); fireplace on the living room side is sealed.
+  - face: floor
+    boundary: ground
+    construction: ground_floor_solid_1980s
+    gross_area_m2: 33.9
+    adjacent: null
+    notes: 'Owner reports the floor is noticeably cold: treat as uninsulated slab.'
+  - face: ceiling
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 21.1
+    adjacent: max_room, landing, studio
+    notes: S 3.03 m under the first floor (Max Room, landing, Studio). Extension projects 1.84 m from the original
+      rear wall (owner, external measurement).
+  - face: roof
+    name: extension_roof
+    boundary: roof
+    construction: roof_extension
+    gross_area_m2: 12.8
+    adjacent: null
+    notes: 'N 1.84 m of the kitchen: 1980s extension flat roof, no first floor above (owner-measured projection,
+      external).'
+openings:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  notes: Measured by owner 2026-09-04 unless an item says otherwise.
+  items:
+  - id: bifold_north
+    type: glazed_door
+    face: north
+    width_m: 2.369
+    height_m: 2.024
+    area_m2: 4.79
+    construction: glazed_door_alu_dg
+    frame: aluminium
+    covering: null
+    covering_closed_at_night: null
+    openable: true
+    contact_sensor: binary_sensor.bifold_door_sensor_opening
+    notes: Measured by owner 2026-09-04 (width x height incl. frame).
+  - id: window_north
+    type: window
+    face: north
+    width_m: 1.776
+    height_m: 1.01
+    area_m2: 1.79
+    construction: window_timber_dg
+    frame: timber
+    covering: null
+    covering_closed_at_night: null
+    openable: true
+    contact_sensor: null
+    notes: Measured by owner 2026-09-04 (width x height incl. frame).
+heating:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  zone_id: 01:144444_00
+  climate_primary: climate.ramses_cc_01_144444_00
+  climate_backup: climate.kitchen
+  emitters:
+  - plan_number: 3
+    type: radiator
+    style: K2
+    height_m: 0.6
+    length_m: 1.6
+    wall: west
+    under_window: false
+    position: On the living-room party wall, immediately E of the chimney breast.
+    trv: HR92
+    trv_device_id: 04:190129
+    trv_entity: sensor.04_190129_temperature
+    trv_binding_confidence: surveyed
+    style_detail: type_22_double_panel_double_convector
+    manufacturer: Stelrad
+    orientation: horizontal
+    output_dt50_w: 2848
+    output_source: generic Stelrad Compact catalogue W/m for 600 mm panels; replace with the exact model figure
+      if known
+    dimensions_confidence: surveyed
+    trv_binding_note: Identified by hand-warming the TRV head and watching the temperature entity, 2026-09-04.
+  - plan_number: 4
+    type: radiator
+    style: K2
+    style_detail: type_22_double_panel_double_convector
+    orientation: vertical
+    height_m: 1.8
+    length_m: 0.4
+    wall: east
+    under_window: false
+    position: E end of the kitchen units near the hallway door, where the plinth heater used to be. Tall vertical
+      radiator.
+    trv: HR92
+    trv_device_id: 04:229741
+    trv_entity: sensor.trv_04_229741_temperature
+    trv_binding_confidence: surveyed
+    notes: Replaced the original hydronic plinth heater.
+    manufacturer: Stelrad
+    output_dt50_w: 1550
+    output_source: generic Stelrad Compact catalogue W/m for 600 mm panels; replace with the exact model figure
+      if known
+    dimensions_confidence: surveyed
+    trv_binding_note: Identified by hand-warming the TRV head and watching the temperature entity, 2026-09-04.
+  zone_sensor:
+    location: free_standing
+    model: DTS92 (ramses device type 22). Owner recalls 'DT4R'; DT4R is a standalone Honeywell Home RF stat and
+      not evohome-bindable, so DTS92 is the likely model. Confirm from the label.
+    device_id: 22:038392
+    entity: sensor.thm_22_038392_temperature
+    height_m: 1.0
+    notes: 'Worktop position: will see cooking gains and the bifold when open. Zone temperature comes from this
+      unit, not the HR92s.'
+    position: DTS92 standing on the worktop, about 1.0 m above floor, at the S end of the W run of units W of the
+      island (plan mark X).
+  preferred_air_temperature_entity: sensor.thm_22_038392_temperature
+  notes: Actuator and sensor bindings read from the ramses_cc schema in HA on 2026-09-04.
+  emitter_notes: Plan numbers refer to floor_plans/House_*_Rads.png (2026-09-04). Lengths scaled from plan, ±0.15
+    m. Which HR92 device sits on which radiator is not yet known where a zone has two.
+  installed_output_dt50_w: 4398
+sensors:
+  temperature:
+  - sensor.kitchen_h5075_temperature
+  - sensor.kitchen_temp_hum_temperature
+  - sensor.kitchen_temp_hum_temperature_2
+  - sensor.kitchen_temp_humidity_temperature
+  - sensor.eppro_kitchen_temperature
+  - sensor.everything_presence_one_6db9d8_temperature
+  - sensor.everything_presence_one_d4e0c4_temperature
+  humidity:
+  - sensor.kitchen_h5075_humidity
+  - sensor.kitchen_temp_hum_humidity
+  - sensor.kitchen_temp_hum_humidity_2
+  - sensor.kitchen_temp_humidity_humidity
+  - sensor.eppro_kitchen_humidity
+  - sensor.epone_kitchen_diner_humidity
+  occupancy:
+  - binary_sensor.kitchen_diner_occupancy
+  - binary_sensor.eplite_kitchen_1_occupancy
+  - binary_sensor.eplite_diner_1_occupancy
+  - binary_sensor.eppro_kitchen_occupancy
+  - binary_sensor.everything_presence_one_6db9d8_occupancy
+  - binary_sensor.everything_presence_one_d4e0c4_occupancy
+  motion:
+  - binary_sensor.eppro_kitchen_motion
+  - binary_sensor.everything_presence_one_6db9d8_pir
+  - binary_sensor.everything_presence_one_d4e0c4_pir
+  illuminance: []
+  contacts:
+  - binary_sensor.bifold_door_sensor_opening
+  - binary_sensor.kitchen_door_sensor_opening
+  - binary_sensor.01_144444_00_window_open
+  other:
+  - sensor.kitchen_mean_radiant_temperature
+  - sensor.kitchen_operative_temperature
+  - sensor.kitchen_thermal_comfort_pmv
+  contact_notes:
+    binary_sensor.bifold_door_sensor_opening: bifold to garden (external)
+    binary_sensor.kitchen_door_sensor_opening: internal door kitchen to hall
+    binary_sensor.01_144444_00_window_open: HR92 inferred open-window detection, not a physical contact
+  positions:
+    sensor.thm_22_038392_temperature: DTS92, see zone_sensor.position
+    sensor.eppro_kitchen_temperature: 'EP Pro: S wall E end, beside the hob. Self-heating plus cooking, unusable.'
+    eplite (two units): N wall above the worktop near the sink; S wall W of the hob. No temperature sensor.
+    sensor.kitchen_h5075_temperature: 'Govee H5075: relocated to the study 2026-09-04; no longer a kitchen sensor.'
+  air_temperature_decision: Use the DTS92 (owner decision).
+  position_notes: Positions from the marked plans floor_plans/House_*_Rads.png (2026-09-04); heights not yet recorded.
+  humidity_notes: Only sensor.kitchen_temp_humidity_humidity (H5100 'Kitchen Temp Humidity') is live; the two 'Kitchen
+    Temp Hum' H5100 entities have flat batteries (owner), not stale devices.
+usage:
+  occupied_pattern: null
+  typical_activity: light_activity
+  typical_clothing_clo: 1.0
+  internal_gains_w: null
+  draught_sources: []
+  notes: Cooking gains are large and intermittent. Several H5100 sensors; pick one as canonical.
+model:
+  measured_on: null
+  confidence: unknown
+  effective_loss_coefficient: null
+  solar_gain_notes: Only one external wall (N), matching v1 profile one_wall_large_window. Bifold is the dominant
+    radiant loss.
+  thermal_camera_survey: null
+photos: []

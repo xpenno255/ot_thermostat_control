@@ -1,0 +1,111 @@
+# Room survey template. Copy to <ha_area_id>.yaml and fill in.
+# Every block that holds measurements has measured_on + confidence (surveyed | estimated | unknown).
+# Lengths m, areas m², U-values W/m²K. null = not applicable, missing = not surveyed yet.
+
+room:
+  id: area_id                      # must equal the Home Assistant area id
+  name: Human Name
+  floor: ground_floor              # HA floor id: ground_floor | first_floor
+  use: living                      # living | kitchen | bedroom | study | hall | utility | bathroom | other
+  heated: true
+
+geometry:
+  measured_on: null
+  confidence: unknown
+  length_m: null                   # longest internal dimension
+  width_m: null
+  height_m: null                   # floor to ceiling
+  floor_area_m2: null              # length × width, or measured if irregular
+  volume_m3: null                  # floor_area × height
+  shape_notes: null                # bays, alcoves, sloping ceilings, open-plan boundaries
+
+# What each face of the room touches. One entry per face, including floor and ceiling.
+# `boundary` is one of: outside | heated_room | unheated_space | ground | loft | roof
+boundaries:
+  measured_on: null
+  confidence: unknown
+  faces:
+    - face: north                  # compass point of the wall's outward normal (or "floor" / "ceiling")
+      boundary: outside
+      construction: external_wall_main   # key from house.yaml constructions
+      gross_area_m2: null          # wall length × height, before subtracting openings
+      adjacent: null               # area id or description if not outside
+    - face: floor
+      boundary: ground
+      construction: ground_floor
+      gross_area_m2: null
+    - face: ceiling
+      boundary: heated_room
+      construction: null
+      gross_area_m2: null
+      adjacent: bedroom
+
+# Windows, glazed doors and external doors. One entry each.
+openings:
+  measured_on: null
+  confidence: unknown
+  items:
+    - id: window_1
+      type: window                 # window | glazed_door | solid_door | rooflight
+      face: north                  # which boundary face it sits in
+      width_m: null
+      height_m: null
+      area_m2: null
+      construction: window_main    # key from house.yaml constructions
+      frame: null                  # upvc | timber | aluminium
+      covering: null               # none | curtains | blinds | shutters
+      covering_closed_at_night: null   # true / false, matters for radiant loss
+      openable: true
+      contact_sensor: null         # binary_sensor entity if fitted
+      notes: null
+
+# Heat emitters and how the zone senses temperature
+heating:
+  measured_on: null
+  confidence: unknown
+  zone_id: null                    # ramses zone id e.g. "01:144444_01"
+  climate_primary: null            # ramses_cc climate entity
+  climate_backup: null             # evohome cloud climate entity
+  emitters:
+    - type: radiator               # radiator | towel_rail | underfloor | none
+      style: null                  # single_panel | double_panel | double_convector | column | other
+      height_m: null
+      length_m: null
+      position: null               # e.g. "under north window" — matters for radiant asymmetry
+      trv: null                    # e.g. "HR92"
+      trv_entity: null
+  zone_sensor:
+    location: null                 # trv | wall_stat | remote_sensor
+    entity: null                   # entity that provides the zone's current_temperature
+    height_m: null
+    notes: null                    # e.g. "TRV under window, reads ~1 K high when heating"
+  preferred_air_temperature_entity: null   # a proper room sensor at seated height if one exists
+
+# Everything in the room HA can already see
+sensors:
+  temperature: []                  # list of sensor entities, best first
+  humidity: []
+  occupancy: []                    # binary_sensor entities; note which one the heating logic should use
+  motion: []
+  illuminance: []
+  contacts: []                     # door / window binary_sensors
+  other: []
+
+# How the room is used. Drives clothing / activity assumptions and offsets.
+usage:
+  occupied_pattern: null           # free text, e.g. "evenings and weekends"
+  typical_activity: seated         # seated | light_activity | sleeping | cooking
+  typical_clothing_clo: 1.0        # 0.6 summer indoor, 1.0 winter indoor, 1.5 bed with duvet
+  internal_gains_w: null           # TV, PCs, cooking, people — rough steady figure
+  draught_sources: []              # e.g. "letterbox", "open stairwell", "bifold seals"
+  notes: null
+
+# Fitted or estimated model parameters for the heating logic. Filled by calibration, not by hand.
+model:
+  measured_on: null
+  confidence: unknown
+  effective_loss_coefficient: null # (T_air − MRT) / (T_air − T_out) on a cold still night
+  solar_gain_notes: null
+  thermal_camera_survey: null      # path to photos / readings when done
+
+photos: []                         # relative paths to photos of each wall, window, radiator

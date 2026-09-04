@@ -1,0 +1,255 @@
+# Living Room — extracted from floor plans 2026-09-04 plus Home Assistant registry.
+# See ../README.md for conventions. Anything null still needs measuring on site.
+room:
+  id: living_room
+  name: Living Room
+  floor: ground_floor
+  use: living
+  heated: true
+geometry:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  source: floor_plan
+  length_m: 7.5
+  width_m: 3.8
+  height_m: 2.393
+  floor_area_m2: 30.1
+  volume_m3: 72.0
+  shape_notes: Original 1920s room 3.80 x 5.66 (E-W x N-S) extended N in the 1980s by 1.84 m (external projection,
+    owner) plus a canted bay, giving 7.50 m internal. The extension is single storey with its own flat roof; the
+    master bedroom and a strip of landing sit over the original part. Chimney breast (fireplace sealed) on the E
+    wall.
+boundaries:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  notes: 'Compass labels are the house''s own axes: N=7 deg, E=97 deg, S=187 deg, W=277 deg (front door bearing
+    ~187 deg from satellite image, +/-5 deg). See house.yaml face_bearings_deg.'
+  faces:
+  - face: west
+    boundary: outside
+    construction: external_wall_main
+    gross_area_m2: 13.5
+    adjacent: null
+    notes: Original 1920s wall, S 5.66 m.
+  - face: west
+    boundary: outside
+    construction: external_wall_extension
+    gross_area_m2: 4.4
+    adjacent: null
+    notes: 1980s extension wall, N 1.84 m.
+  - face: north
+    boundary: outside
+    construction: external_wall_extension
+    gross_area_m2: 7.4
+    adjacent: null
+    notes: '1980s extension: canted bay, glazed run 3.11 m floor to head, almost no opaque wall.'
+  - face: south
+    boundary: outside
+    construction: external_wall_main
+    gross_area_m2: 9.1
+    adjacent: null
+    notes: Front wall, set back 1.33 m from the hall front wall.
+  - face: east
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 17.9
+    adjacent: kitchen, hall
+    notes: Kitchen for the northern ~4.9 m, front hall for the southern ~2.6 m. Chimney breast on this wall; fireplace
+      sealed by owner, so no open-flue draught. Chimney stack passes through the loft.
+  - face: floor
+    boundary: ground
+    construction: ground_floor_suspended
+    gross_area_m2: 30.1
+    adjacent: null
+  - face: ceiling
+    boundary: heated_room
+    construction: null
+    gross_area_m2: 21.5
+    adjacent: bedroom, landing
+    notes: 'First floor above the S 5.66 m: master bedroom (5.15 m) plus ~0.5 m under the landing/bathroom line.'
+  - face: roof
+    name: extension_roof
+    boundary: roof
+    construction: roof_extension
+    gross_area_m2: 8.6
+    adjacent: null
+    notes: 'N 1.84 m of the room plus the bay: single-storey extension flat roof, very limited insulation (owner).'
+openings:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  notes: Measured by owner 2026-09-04 unless an item says otherwise.
+  items:
+  - id: bay_french_doors_north
+    type: glazed_door
+    face: north
+    width_m: 3.11
+    height_m: 2.003
+    area_m2: 6.23
+    construction: glazed_door_timber_dg
+    frame: timber
+    covering: null
+    covering_closed_at_night: null
+    openable: true
+    contact_sensor: null
+    notes: 'Canted bay, all four elements glazed floor to head (owner 2026-09-04): returns 0.83/0.8 m, doors 0.72/0.76
+      m, height 2.003 m, opening 2.984 m, depth 0.7 m to the frame edge. Returns sit ~0.35 m deep by geometry. Timber
+      DG. Own small roof above.'
+    wall_opening_width_m: 2.984
+    wall_opening_height_m: 2.003
+    wall_opening_area_m2: 5.98
+    bay_projection_m: 0.56
+    panes:
+    - id: return_west
+      type: fixed_glazed_return
+      width_m: 0.83
+      height_m: 2.003
+      area_m2: 1.66
+    - id: door_left
+      type: glazed_door
+      width_m: 0.72
+      height_m: 2.003
+      area_m2: 1.44
+    - id: door_right
+      type: glazed_door
+      width_m: 0.76
+      height_m: 2.003
+      area_m2: 1.52
+    - id: return_east
+      type: fixed_glazed_return
+      width_m: 0.8
+      height_m: 2.003
+      area_m2: 1.6
+    glazed_run_m: 3.11
+    bay_depth_m: 0.7
+    sill_height_m: 0.0
+  - id: window_south
+    type: window
+    face: south
+    width_m: 1.883
+    height_m: 1.482
+    area_m2: 2.79
+    construction: window_timber_dg
+    frame: timber
+    covering: null
+    covering_closed_at_night: null
+    openable: true
+    contact_sensor: null
+    notes: Measured by owner 2026-09-04 (width x height incl. frame).
+heating:
+  measured_on: '2026-09-04'
+  confidence: surveyed
+  zone_id: 01:144444_01
+  climate_primary: climate.living_room_2
+  climate_backup: climate.living_room
+  emitters:
+  - plan_number: 1
+    type: radiator
+    style: K3
+    height_m: 0.6
+    length_m: 1.4
+    wall: west
+    under_window: false
+    position: N half of the W wall, behind the sofa. Vertical run on plan, orientation (horizontal panel vs vertical)
+      to confirm.
+    trv: HR92
+    trv_device_id: 04:068211
+    trv_entity: sensor.04_068211_temperature
+    trv_binding_confidence: surveyed
+    style_detail: type_33_triple_panel_triple_convector
+    manufacturer: Stelrad
+    orientation: horizontal
+    output_dt50_w: 3486
+    output_source: generic Stelrad Compact catalogue W/m for 600 mm panels; replace with the exact model figure
+      if known
+    dimensions_confidence: surveyed
+    trv_binding_note: Identified by hand-warming the TRV head and watching the temperature entity, 2026-09-04.
+  - plan_number: 2
+    type: radiator
+    style: K3
+    height_m: 0.6
+    length_m: 1.6
+    wall: west
+    under_window: false
+    position: S half of the W wall.
+    trv: HR92
+    trv_device_id: 04:068203
+    trv_entity: sensor.04_068203_temperature
+    trv_binding_confidence: surveyed
+    style_detail: type_33_triple_panel_triple_convector
+    manufacturer: Stelrad
+    orientation: horizontal
+    output_dt50_w: 3984
+    output_source: generic Stelrad Compact catalogue W/m for 600 mm panels; replace with the exact model figure
+      if known
+    dimensions_confidence: surveyed
+    trv_binding_note: Identified by hand-warming the TRV head and watching the temperature entity, 2026-09-04.
+  zone_sensor:
+    location: free_standing
+    model: DTS92 (ramses device type 22). Owner recalls 'DT4R'; DT4R is a standalone Honeywell Home RF stat and
+      not evohome-bindable, so DTS92 is the likely model. Confirm from the label.
+    device_id: 22:066067
+    entity: sensor.thm_22_066067_temperature
+    height_m: 0.9
+    notes: Good height for seated comfort. Not on an external wall. Zone temperature comes from this unit, not the
+      HR92s.
+    position: DTS92 free-standing on a shelf at about sitting height (~0.9 m), W side of the room roughly 1.2 m
+      in from the W wall, between radiators 1 and 2 (plan mark X).
+  preferred_air_temperature_entity: sensor.thm_22_066067_temperature
+  notes: Actuator and sensor bindings read from the ramses_cc schema in HA on 2026-09-04. DTS92 read 21.5 vs Govee
+    H5075 22.3 on 2026-09-04; the two sit in different spots, note where each is.
+  emitter_notes: Plan numbers refer to floor_plans/House_*_Rads.png (2026-09-04). Lengths scaled from plan, ±0.15
+    m. Which HR92 device sits on which radiator is not yet known where a zone has two.
+  installed_output_dt50_w: 7470
+sensors:
+  temperature:
+  - sensor.living_room_h5075_temperature
+  - sensor.everything_presence_one_6db98c_temperature
+  - sensor.everything_presence_pro_d3a3fc_temperature
+  humidity:
+  - sensor.living_room_h5075_humidity
+  - sensor.everything_presence_one_6db98c_humidity
+  occupancy:
+  - binary_sensor.living_room_occupancy
+  - binary_sensor.eplite_living_room_1_occupancy
+  - binary_sensor.eplite_living_room_2_occupancy
+  - binary_sensor.everything_presence_one_6db98c_occupancy
+  - binary_sensor.everything_presence_pro_d3a3fc_occupancy
+  - binary_sensor.msr_occupancy
+  motion:
+  - binary_sensor.everything_presence_one_6db98c_pir
+  - binary_sensor.everything_presence_pro_d3a3fc_motion
+  illuminance: []
+  contacts:
+  - binary_sensor.01_144444_01_window_open
+  other:
+  - sensor.living_room_mrt_mean_radiant_temperature
+  - sensor.living_room_mrt_operative_temperature
+  - sensor.living_room_mrt_thermal_comfort_pmv
+  positions:
+    sensor.thm_22_066067_temperature: DTS92, see zone_sensor.position
+    sensor.living_room_h5075_temperature: 'Govee H5075: not marked on plan'
+    sensor.everything_presence_pro_d3a3fc_temperature: 'EP Pro: NW corner on the W wall by the bay. Reads ~35 C,
+      self-heated, unusable for temperature.'
+    eplite (two units): one on the E wall N end near the chimney breast, one on the E wall by the hall door. EP
+      Lite has no temperature sensor.
+  air_temperature_decision: Use the DTS92 (owner decision). Govee kept as a cross-check only.
+  position_notes: Positions from the marked plans floor_plans/House_*_Rads.png (2026-09-04); heights not yet recorded.
+usage:
+  occupied_pattern: null
+  typical_activity: seated
+  typical_clothing_clo: 1.0
+  internal_gains_w: null
+  draught_sources: []
+  notes: EP Pro temperature reads ~35 C (self-heated), do not use. binary_sensor.living_room_occupancy is the aggregate
+    used by OT v1. Owner reports this room has always struggled to feel comfortable even when the air temperature
+    is met, attributed to the glazed bay and three external walls. The K3 radiators were fitted to keep output up
+    at a reduced flow temperature. This is the canonical radiant-deficit room and the first calibration target.
+model:
+  measured_on: null
+  confidence: unknown
+  effective_loss_coefficient: null
+  solar_gain_notes: 'Three external walls, not two as in the v1 profile. Large N glazing gives little direct solar
+    gain but a big radiant loss; S window gets winter sun. Lived experience matches the model: air setpoint met
+    but low MRT.'
+  thermal_camera_survey: null
+photos: []

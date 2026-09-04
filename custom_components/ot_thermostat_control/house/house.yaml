@@ -1,0 +1,144 @@
+# Whole-house facts shared by all room files.
+# Fill in once; rooms reference construction names defined here.
+
+house:
+  name: Home
+  address_hint: null               # optional, free text
+  built: 1920s                     # early 1920s original; kitchen and utility extension early 1980s
+  storeys: 2
+  extensions:
+    - {name: kitchen and utility, built: 1980s, rooms: [kitchen, utility]}
+  front_elevation_bearing_deg: 187   # estimated from a north-up Google satellite image 2026-09-04: walls sit ~7 deg clockwise of the image grid, so the front normal is ~180+7. Accuracy about +/-5 deg; confirm with a phone compass.
+  face_bearings_deg: {N: 7, E: 97, S: 187, W: 277}   # what each compass label in the room files actually means
+  front_elevation_faces: S         # 187 deg, i.e. S by W. Garden/bifold side faces ~7 deg (N).
+  measured_on: 2026-09-04
+  confidence: surveyed
+  footprint_notes: |
+    Ground floor 15.55 x 11.55 m overall including an attached unheated garage (3.12 x 6.13 m) on the E side.
+    The 1980s single-storey rear extension runs along the N side: utility, the N part of the kitchen and the N ~2.3 m of the
+    living room including its bay; all of it under a thin flat roof with no first floor above. First floor 10.85 x 7.99 m over
+    the main body only. Living room front wall is set back 1.33 m from the hall front wall; study has a S bay.
+    Rooms not heated as zones: bathroom (first floor, S window), first-floor toilet, landing, ground-floor toilet, garage.
+  plans:
+    - floor_plan_ground.png   # add the images here
+    - floor_plan_first.png
+
+heating:
+  system: evohome                  # controller 01:144444 via ramses_cc, plus evohome cloud as backup
+  boiler: ems-esp                  # see select.boiler_dhw_comfort
+  emitters: radiators
+  flow_temperature_c: null           # deliberately reduced from default to improve comfort and cut gas use / boiler cycling; record the setting
+  flow_temperature_notes: Radiators sized or upgraded (living room K3) to deliver enough output at the reduced flow temperature.
+  zone_controller_id: "01:144444"
+  optimum_start_enabled: true        # confirmed by owner 2026-09-04; v2 phase-1 pre-heat (release to schedule before an upward switchpoint) therefore has an effect
+  unzoned_emitters:
+    - {plan_number: 12, room: bathroom, type: towel_rail, wall: east, height_m: 0.9, width_m: 0.5, output_dt50_w: 400, trv: none, notes: heated towel rail on the landing wall, no TRV, runs whenever the heating circuit is hot}
+  notes: |
+    Zones are radiator_valve type. Unless a room says otherwise the zone temperature
+    is measured by the HR92 on the radiator, which reads high while heating.
+
+# Named construction types. Rooms refer to these by key so U-values live in one place.
+# Replace `estimated` values after a thermal-camera survey on a cold night.
+constructions:
+  external_wall_main:
+    description: 1920s brick cavity wall, narrow (~50 mm) cavity, unfilled, cavity open at the top into the loft
+    u_value: 1.7
+    confidence: estimated
+    notes: |
+      Early cavity brick is ~1.5-1.6 nominal. Open cavity tops let loft air circulate in the cavity (thermal bypass),
+      so 1.7 is used. Sealing the cavity tops in the loft is a cheap, worthwhile fix and would drop this to ~1.5.
+      Narrow cavity limits retrofit fill options; check suitability before considering CWI.
+  external_wall_extension:
+    description: early-1980s cavity wall (kitchen, utility); 1982 regs imply some insulation or insulating block
+    u_value: 0.6
+    confidence: estimated
+  wall_to_unheated:
+    description: internal wall to garage / porch / unheated space
+    u_value: 1.5
+    confidence: estimated
+  window_timber_dg:
+    description: timber-framed double glazing, installed ~2022-2023, low-E argon assumed
+    u_value: 1.4
+    confidence: estimated
+  glazed_door_timber_dg:
+    description: timber-framed double-glazed doors (living room bay), ~2022-2023
+    u_value: 1.5
+    confidence: estimated
+  window_alu_dg:
+    description: aluminium-framed double glazing, ~2022-2023, thermally broken
+    u_value: 1.5
+    confidence: estimated
+  glazed_door_alu_dg:
+    description: aluminium-framed double-glazed bifold (kitchen), ~2022-2023, thermally broken
+    u_value: 1.6
+    confidence: estimated
+  external_door_front:
+    description: solid timber front door with a ~30 x 25 cm double-glazed pane; letterbox fitted with a draught excluder
+    u_value: 3.0
+    confidence: surveyed
+  external_door_glazed:
+    description: part-glazed external door (utility)
+    u_value: 2.5
+    confidence: estimated
+  external_door_solid:
+    description: other solid external doors (utility)
+    u_value: 3.0
+    confidence: estimated
+  roof_loft:
+    description: cold loft; ~2 x 200 mm Knauf Earthwool mineral wool on the ceiling joists, coverage imperfect; original slate roof torched to rafters, no insulation or membrane at rafter level
+    u_value: 0.15
+    confidence: surveyed
+    notes: |
+      400 mm of mineral wool is ~0.10 nominal; 0.15 allows for gaps in coverage. Loft air temperature will track
+      outdoors closely (ventilated cold roof, single-skin slate), so first-floor ceilings face near-outdoor
+      temperature. The unfilled cavity tops open into this cold space.
+  roof_extension:
+    description: flat roof of the 1980s single-storey rear extension (utility, N part of kitchen, N ~2.3 m of living room incl. its bay), ~50 mm insulation
+    u_value: 0.6
+    confidence: estimated
+    notes: 50 mm mineral wool or similar gives ~0.6-0.7; if it is rigid PIR it would be nearer 0.4. Roughly four times the loss of the main loft per m2.
+  roof_bay:
+    description: small independent roof over a ground-floor bay window (study, probably living room); insulation unknown, assume little
+    u_value: 1.0
+    confidence: unknown
+  ground_floor_suspended:
+    description: 1920s suspended timber floor assumed for the original house (living room, hall, study); confirm
+    u_value: 0.8
+    confidence: estimated
+  ground_floor_solid_1980s:
+    description: 1980s concrete slab in the extension, no evidence of insulation; owner reports the kitchen floor is noticeably cold
+    u_value: 0.8
+    confidence: estimated
+
+# Shared environmental sources used by every room
+environment:
+  weather_entity: weather.pirateweather
+  outdoor_temperature_entity: sensor.home_heating_outdoor_temperature_sensor
+  outdoor_apparent_entity: null    # weather.pirateweather exposes apparent_temperature as an attribute
+  solar_radiation_entity: null
+  wind_speed_entity: null
+  sun_entity: sun.sun
+
+# Mechanical extract ventilation
+ventilation:
+  type: MEV                        # continuous mechanical extract, first floor only
+  extract_points:
+    - {room: landing, notes: top of the stairs}
+    - {room: bathroom}
+    - {room: bedroom, notes: master bedroom}
+  control: Home Assistant; speed ramps on bathroom humidity or master-bedroom CO2, otherwise trickle
+  entities:
+    mode_select: input_select.mev_mode          # Auto / Low / Purge
+    low_switch: switch.shelly_mini_mev_switch_1_low_switch_1_low_switch_0
+    purge_switch: switch.shelly_mini_mev_switch_2_purge_switch_0
+    bedroom_co2: sensor.everything_presence_lite_ccbb44_co2
+  notes: |
+    Extract on the first floor draws replacement air in through the ground-floor envelope (letterbox, floor voids,
+    bifold seals), so infiltration losses land downstairs while the fan runs. A purge in the master bedroom is a
+    direct heat loss from that room. Air movement from the extract is small and does not change the operative
+    temperature model, but fan speed is a useful input for infiltration in v2.
+
+# Global mode helpers the heating logic reads
+modes:
+  holiday: input_boolean.holiday_mode
+  at_home: input_boolean.at_home_mode
