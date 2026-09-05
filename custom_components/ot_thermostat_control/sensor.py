@@ -113,7 +113,7 @@ class OTRoomSensor(OTRoomEntity, SensorEntity):
 
 class OTHubSensor(SensorEntity):
     _attr_has_entity_name = True
-    _attr_should_poll = True
+    _attr_should_poll = False
 
     def __init__(self, hub: OTHubData, entry: ConfigEntry, key: str, name: str, spec: tuple, icon: str | None) -> None:
         self._hub = hub
@@ -124,6 +124,11 @@ class OTHubSensor(SensorEntity):
         self._attr_native_unit_of_measurement, self._attr_device_class, self._attr_state_class = spec
         self._attr_icon = icon
         self._attr_device_info = hub_device_info(entry)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._hub.add_listener(self.async_write_ha_state)
+        self.async_on_remove(lambda: self._hub.remove_listener(self.async_write_ha_state))
 
     @property
     def native_value(self):

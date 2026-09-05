@@ -31,11 +31,27 @@ class OTHubData:
     outdoor_used: float | None = None
     days_completed: int = 0  # full days folded into the running mean
     MIN_DAYS_FOR_ADAPTIVE: int = 3
+    _listeners: list = field(default_factory=list, repr=False)
     _day: date | None = field(default=None, repr=False)
     _day_sum: float = field(default=0.0, repr=False)
     _day_n: int = field(default=0, repr=False)
 
     # ------------------------------------------------------------------
+    def add_listener(self, cb) -> None:
+        """Register a callback run after each sample so hub sensors update immediately."""
+        self._listeners.append(cb)
+
+    def remove_listener(self, cb) -> None:
+        if cb in self._listeners:
+            self._listeners.remove(cb)
+
+    def _notify(self) -> None:
+        for cb in list(self._listeners):
+            try:
+                cb()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("hub listener failed", exc_info=True)
+
     def load(self) -> None:
         if self.store is None:
             return
@@ -73,6 +89,7 @@ class OTHubData:
         elif self.flow_temp_used is None and manual is not None:
             self.flow_temp_used = manual
             self.flow_temp_source = "manual"
+        self._notify()
         return self.flow_temp_used
 
     def sample_outdoor(self, t_out: float, now: datetime) -> float | None:
@@ -93,6 +110,7 @@ class OTHubData:
             # Seed with the first reading so adaptive comfort has something on day one.
             self.running_mean = self._day_sum / self._day_n
         self._persist()
+        self._notify()
         return self.running_mean
 
     @property
