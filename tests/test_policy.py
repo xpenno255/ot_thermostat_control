@@ -199,3 +199,12 @@ def test_unknown_schedule_is_never_manual():
     """Right after a restart the schedule can be missing; a non-matching zone setpoint is not 'manual'."""
     d = decide(inputs(computed_setpoint=None, zone=ZoneState(19.0, None)))
     assert d.state is State.NO_DATA
+
+
+def test_zone_at_next_switchpoint_value_near_switchpoint_is_not_manual():
+    """Cloud schedule still says 18 at 06:31 while the zone already moved to 19 at 06:30."""
+    z = ZoneState(19.0, 18.0, next_switchpoint_at=T0 - timedelta(minutes=1), next_switchpoint_setpoint=19.0)
+    d = decide(inputs(memory=held(18.2), zone=z))
+    assert d.state is not State.MANUAL
+    far = ZoneState(19.0, 18.0, next_switchpoint_at=T0 + timedelta(hours=3), next_switchpoint_setpoint=19.0)
+    assert decide(inputs(memory=held(18.2), zone=far)).state is State.MANUAL

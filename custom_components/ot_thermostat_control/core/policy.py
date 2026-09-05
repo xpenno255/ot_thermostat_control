@@ -40,6 +40,7 @@ class PolicyParams:
     window_close_delay_minutes: int = 15
     preheat_release_minutes: int = 60  # phase-1 pre-heat: release this long before an upward switchpoint
     window_setpoint: float = 10.0
+    switchpoint_grace_minutes: int = 30  # tolerance for schedule-source lag either side of a switchpoint
 
 
 @dataclass(frozen=True)
@@ -151,6 +152,15 @@ def _manual_override(inp: PolicyInputs) -> bool:
     matches_ours = m.last_written_setpoint is not None and abs(z.current_setpoint - m.last_written_setpoint) < tol
     matches_schedule = z.schedule_setpoint is not None and abs(z.current_setpoint - z.schedule_setpoint) < tol
     if matches_ours or matches_schedule:
+        return False
+    # Around a switchpoint the cloud schedule source lags the zone by minutes: a zone already
+    # sitting at the next switchpoint's value is following its schedule, not a hand.
+    if (
+        z.next_switchpoint_setpoint is not None
+        and z.next_switchpoint_at is not None
+        and abs(z.current_setpoint - z.next_switchpoint_setpoint) < tol
+        and abs((z.next_switchpoint_at - inp.now).total_seconds()) <= p.switchpoint_grace_minutes * 60
+    ):
         return False
     # If we never wrote anything, a non-schedule setpoint is still someone else's doing.
     return True

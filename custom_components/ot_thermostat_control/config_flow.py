@@ -155,7 +155,9 @@ def hub_schema(d: dict[str, Any] | None = None) -> vol.Schema:
                         vol.Optional(CONF_FLOW_TEMP_ENTITY, description={"suggested_value": d.get(CONF_FLOW_TEMP_ENTITY)}): selector.EntitySelector(
                             selector.EntitySelectorConfig(domain=["number", "sensor"])
                         ),
-                        vol.Optional(CONF_DHW_ACTIVE_ENTITY, description={"suggested_value": d.get(CONF_DHW_ACTIVE_ENTITY)}): _entity("binary_sensor"),
+                        vol.Optional(CONF_DHW_ACTIVE_ENTITY, description={"suggested_value": d.get(CONF_DHW_ACTIVE_ENTITY)}): selector.EntitySelector(
+                            selector.EntitySelectorConfig(domain=["binary_sensor", "sensor"])
+                        ),
                         vol.Required(CONF_MANUAL_FLOW_TEMP, default=d.get(CONF_MANUAL_FLOW_TEMP, DEFAULT_MANUAL_FLOW_TEMP)): _num(30, 80, 1, "°C"),
                         vol.Required(CONF_GROUND_TEMP, default=d.get(CONF_GROUND_TEMP, DEFAULT_GROUND_TEMP)): _num(0, 20, 0.5, "°C"),
                     }

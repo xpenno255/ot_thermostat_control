@@ -311,10 +311,16 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             return None
 
     def _is_on(self, entity_id: str | None) -> bool | None:
+        """True for binary 'on', or for a numeric sensor reading above zero (e.g. a relay demand %)."""
         st = self._state(entity_id)
         if st is None or st.state in UNAVAILABLE:
             return None
-        return st.state == "on"
+        if st.state in ("on", "off"):
+            return st.state == "on"
+        try:
+            return float(st.state) > 0.0
+        except (TypeError, ValueError):
+            return None
 
     def _hub(self) -> OTHubData | None:
         info = self.hass.data.get(DOMAIN, {}).get("hub")
@@ -405,6 +411,11 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
                 self._schedule_source = "ramses"
         else:
             self._schedule_source = "evohome"
+            # Cloud lag: if the next switchpoint time has passed but evohome still reports the
+            # previous period, the zone is already on the new value. Use it.
+            if nxt_at is not None and nxt_sp is not None and dt_util.utcnow() >= nxt_at:
+                sched = nxt_sp
+                self._schedule_source = "evohome (next switchpoint, cloud lagging)"
         return ZoneState(current_setpoint=current, schedule_setpoint=sched, next_switchpoint_at=nxt_at, next_switchpoint_setpoint=nxt_sp)
 
     def _ramses_schedule(self, entity_id: str | None) -> list | None:

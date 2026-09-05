@@ -190,10 +190,8 @@ def test_hub_running_mean_needs_three_days():
     assert 0 < hub.running_mean < 10
 
 
-RAMSES_SCHEDULE = [
-    {"day_of_week": d, "switchpoints": [{"time_of_day": "00:00", "heat_setpoint": 17.5}, {"time_of_day": "06:30", "heat_setpoint": 19.0}]}
-    for d in range(7)
-]
+# One switchpoint per day so the expected value does not depend on the test's wall-clock time.
+RAMSES_SCHEDULE = [{"day_of_week": d, "switchpoints": [{"time_of_day": "00:00", "heat_setpoint": 19.0}]} for d in range(7)]
 
 
 async def test_offline_fallbacks_ramses_schedule_and_outdoor_cache(hass: HomeAssistant):
@@ -246,3 +244,28 @@ async def test_startup_retry_recovers_missing_schedule(hass: HomeAssistant):
     assert coordinator.data.last_run != first_run, "retry did not run"
     assert coordinator.data.state == "shadow"
     assert coordinator.data.schedule_setpoint == 19.0
+
+
+async def test_dhw_gate_accepts_numeric_demand_and_cloud_lag_promotes_next_switchpoint(hass: HomeAssistant):
+    hub, room, calls = await _setup(hass, MODE_SHADOW)
+    coordinator = room.runtime_data
+    # numeric demand sensor as DHW gate
+    hass.states.async_set("sensor.hw_relay_demand", "100.0")
+    hass.states.async_set("number.boiler_selflowtemp", "70")
+    hub_cfg = hass.data[DOMAIN]["hub"]["config"]
+    hub_cfg["flow_temp_entity"] = "number.boiler_selflowtemp"
+    hub_cfg["dhw_active_entity"] = "sensor.hw_relay_demand"
+    await coordinator.async_refresh()
+    assert coordinator.data.flow_temp_used != 70.0  # sample rejected while DHW demand > 0
+    hass.states.async_set("sensor.hw_relay_demand", "0.0")
+    hass.states.async_set("number.boiler_selflowtemp", "50")
+    await coordinator.async_refresh()
+    assert coordinator.data.flow_temp_used == 50.0
+    # cloud lag: next switchpoint time has passed, evohome still reports the old period
+    past = (dt_util.utcnow() - timedelta(minutes=2)).isoformat()
+    hass.states.async_set("climate.living_room", "heat", {"current_temperature": 19.0, "temperature": 20.0,
+                          "status": {"setpoints": {"this_sp_temp": 19.0, "next_sp_temp": 20.0, "next_sp_from": past}}})
+    hass.states.async_set("climate.living_room_2", "heat", {"current_temperature": 19.0, "temperature": 20.0})
+    await coordinator.async_refresh()
+    assert coordinator.data.schedule_setpoint == 20.0
+    assert coordinator.data.state == "shadow"

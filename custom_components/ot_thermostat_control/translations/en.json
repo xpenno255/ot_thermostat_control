@@ -15,7 +15,7 @@
               "outdoor_temp_sensor": "Outdoor temperature sensor (dry bulb)",
               "irradiance_sensor": "Solar irradiance sensor (W/m²)",
               "flow_temp_entity": "Boiler flow temperature entity",
-              "dhw_active_entity": "Hot water active (binary sensor)",
+              "dhw_active_entity": "Hot water active (binary sensor, or a demand sensor > 0)",
               "manual_flow_temp": "Manual flow temperature (used if no entity)",
               "ground_temp": "Ground temperature under the floor"
             }
@@ -102,7 +102,7 @@
           "mode": "Mode"
         },
         "sections": {
-          "sources_section": {"name": "Sources", "data": {"outdoor_temp_sensor": "Outdoor temperature sensor (dry bulb)", "irradiance_sensor": "Solar irradiance sensor (W/m²)", "flow_temp_entity": "Boiler flow temperature entity", "dhw_active_entity": "Hot water active (binary sensor)", "manual_flow_temp": "Manual flow temperature (used if no entity)", "ground_temp": "Ground temperature under the floor"}},
+          "sources_section": {"name": "Sources", "data": {"outdoor_temp_sensor": "Outdoor temperature sensor (dry bulb)", "irradiance_sensor": "Solar irradiance sensor (W/m²)", "flow_temp_entity": "Boiler flow temperature entity", "dhw_active_entity": "Hot water active (binary sensor, or a demand sensor > 0)", "manual_flow_temp": "Manual flow temperature (used if no entity)", "ground_temp": "Ground temperature under the floor"}},
           "comfort_section": {"name": "Comfort", "data": {"cap_up": "Maximum upward correction", "cap_down": "Maximum downward correction", "adaptive_enabled": "Adaptive comfort (lower targets in cold spells)", "adaptive_slope": "Adaptive slope", "adaptive_reference": "Adaptive reference running-mean temperature", "trust_k": "Trust factor", "asymmetry_enabled": "Radiant asymmetry term (large glazing)"}},
           "advanced_section": {"name": "Advanced", "data": {"house_dir": "House survey directory (leave empty for the bundled survey)"}},
           "policy_section": {"name": "Write policy", "data": {"override_duration": "Override duration", "manual_hold_minutes": "Hold after a manual dial change", "preheat_release_minutes": "Release to schedule before an upward switchpoint", "run_interval": "Evaluation interval", "window_setpoint": "Setpoint while a window is open", "window_open_delay": "Window must be open for", "window_delay": "Keep setback after closing for"}},
