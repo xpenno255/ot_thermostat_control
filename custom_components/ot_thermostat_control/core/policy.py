@@ -41,6 +41,7 @@ class PolicyParams:
     preheat_release_minutes: int = 60  # phase-1 pre-heat: release this long before an upward switchpoint
     window_setpoint: float = 10.0
     switchpoint_grace_minutes: int = 30  # tolerance for schedule-source lag either side of a switchpoint
+    zone_off_setpoint: float = 5.0  # a zone parked at or below this is off (evohome floor), not manual
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,8 @@ class ZoneState:
     schedule_setpoint: float | None  # what the schedule says it should be now
     next_switchpoint_at: datetime | None = None
     next_switchpoint_setpoint: float | None = None
+    previous_schedule_setpoint: float | None = None  # value before the last schedule change
+    schedule_changed_at: datetime | None = None  # when the schedule source last changed value
 
 
 @dataclass(frozen=True)
@@ -154,12 +157,23 @@ def _manual_override(inp: PolicyInputs) -> bool:
     if matches_ours or matches_schedule:
         return False
     # Around a switchpoint the cloud schedule source lags the zone by minutes: a zone already
-    # sitting at the next switchpoint's value is following its schedule, not a hand.
+    # sitting at the next switchpoint's value is following its schedule, not a hand. Before the
+    # switchpoint the window must also cover evohome's optimum start, which raises the zone to
+    # the next value up to preheat_release_minutes early.
+    if z.next_switchpoint_setpoint is not None and z.next_switchpoint_at is not None and abs(
+        z.current_setpoint - z.next_switchpoint_setpoint
+    ) < tol:
+        ahead = (z.next_switchpoint_at - inp.now).total_seconds()
+        before = max(p.switchpoint_grace_minutes, p.preheat_release_minutes) * 60
+        if -p.switchpoint_grace_minutes * 60 <= ahead <= before:
+            return False
+    # Just after a switchpoint the zone lags the schedule the other way: still holding the
+    # previous scheduled value while the source already reports the new one.
     if (
-        z.next_switchpoint_setpoint is not None
-        and z.next_switchpoint_at is not None
-        and abs(z.current_setpoint - z.next_switchpoint_setpoint) < tol
-        and abs((z.next_switchpoint_at - inp.now).total_seconds()) <= p.switchpoint_grace_minutes * 60
+        z.previous_schedule_setpoint is not None
+        and z.schedule_changed_at is not None
+        and abs(z.current_setpoint - z.previous_schedule_setpoint) < tol
+        and timedelta(0) <= inp.now - z.schedule_changed_at <= timedelta(minutes=p.switchpoint_grace_minutes)
     ):
         return False
     # If we never wrote anything, a non-schedule setpoint is still someone else's doing.
@@ -193,7 +207,11 @@ def decide(inp: PolicyInputs) -> Decision:
     if not inp.within_time_window:
         return _release_or_none(State.OUTSIDE_WINDOW, "outside operating window", inp)
 
-    # 2. Manual override detection and hold.
+    # 2. Zone deliberately off (parked at the evohome floor): hands off, and never "manual".
+    if inp.zone.current_setpoint is not None and inp.zone.current_setpoint <= p.zone_off_setpoint + p.step / 2:
+        return _release_or_none(State.OFF, f"zone setpoint {inp.zone.current_setpoint} at off floor; leaving alone", inp)
+
+    # 3. Manual override detection and hold.
     m = _update_window_memory(inp)
     if _manual_override(inp):
         since = m.manual_detected_at or inp.now
@@ -209,7 +227,7 @@ def decide(inp: PolicyInputs) -> Decision:
     elif m.manual_detected_at is not None:
         m = OverrideMemory(m.last_written_setpoint, m.last_written_at, None, m.window_open_since, m.window_closed_at)
 
-    # 3. Window / door overrides beat the model.
+    # 4. Window / door overrides beat the model.
     if _window_override_active(m, inp):
         target = p.window_setpoint
         state, reason = State.WINDOW_OPEN, ("window open" if inp.any_window_open else "window recently closed")
@@ -223,11 +241,11 @@ def decide(inp: PolicyInputs) -> Decision:
             return Decision(State.SHADOW, Action.NONE, None, "adjacent door open (shadow)", m, would_write=target)
         return _write(State.DOOR_OPEN, target, "adjacent door open; plain schedule target", inp, m)
 
-    # 4. Nothing to correct with.
+    # 5. Nothing to correct with.
     if inp.computed_setpoint is None:
         return _release_or_none(State.NO_DATA, "no computed setpoint", inp)
 
-    # 5. Phase-1 pre-heat: release ahead of an upward switchpoint so evohome's optimum start can act.
+    # 6. Phase-1 pre-heat: release ahead of an upward switchpoint so evohome's optimum start can act.
     z = inp.zone
     if (
         z.next_switchpoint_at is not None
@@ -240,7 +258,7 @@ def decide(inp: PolicyInputs) -> Decision:
             return Decision(State.SHADOW, Action.NONE, None, "pre-heat release window (shadow)", m, would_write=None)
         return _release_or_none(State.PREHEAT, "upward switchpoint soon; leaving zone to optimum start", inp)
 
-    # 6. Normal operation.
+    # 7. Normal operation.
     target = inp.computed_setpoint
     if inp.shadow_mode:
         return Decision(State.SHADOW, Action.NONE, None, "shadow mode", m, would_write=target)

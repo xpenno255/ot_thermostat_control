@@ -416,7 +416,25 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             if nxt_at is not None and nxt_sp is not None and dt_util.utcnow() >= nxt_at:
                 sched = nxt_sp
                 self._schedule_source = "evohome (next switchpoint, cloud lagging)"
-        return ZoneState(current_setpoint=current, schedule_setpoint=sched, next_switchpoint_at=nxt_at, next_switchpoint_setpoint=nxt_sp)
+        # Track schedule value changes so the policy can excuse a zone briefly lagging a switchpoint.
+        last = self._store.get("last_schedule_setpoint")
+        if sched is not None:
+            if last is not None and abs(float(last) - sched) > 1e-6:
+                self._store.set("prev_schedule_setpoint", float(last))
+                self._store.set("schedule_changed_at", dt_util.utcnow().isoformat())
+            if last is None or abs(float(last) - sched) > 1e-6:
+                self._store.set("last_schedule_setpoint", sched)
+        prev_sp = self._store.get("prev_schedule_setpoint")
+        changed_raw = self._store.get("schedule_changed_at")
+        changed_at = dt_util.parse_datetime(str(changed_raw)) if changed_raw else None
+        return ZoneState(
+            current_setpoint=current,
+            schedule_setpoint=sched,
+            next_switchpoint_at=nxt_at,
+            next_switchpoint_setpoint=nxt_sp,
+            previous_schedule_setpoint=float(prev_sp) if prev_sp is not None else None,
+            schedule_changed_at=dt_util.as_utc(changed_at) if changed_at is not None else None,
+        )
 
     def _ramses_schedule(self, entity_id: str | None) -> list | None:
         """Live ramses schedule if present (and cache it), else the cached copy from the store."""

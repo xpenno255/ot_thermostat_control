@@ -208,3 +208,29 @@ def test_zone_at_next_switchpoint_value_near_switchpoint_is_not_manual():
     assert d.state is not State.MANUAL
     far = ZoneState(19.0, 18.0, next_switchpoint_at=T0 + timedelta(hours=3), next_switchpoint_setpoint=19.0)
     assert decide(inputs(memory=held(18.2), zone=far)).state is State.MANUAL
+
+
+def test_zone_parked_at_off_floor_is_off_not_manual():
+    """A zone the owner turned off (evohome 5.0 floor) is deliberately off, not a dial change."""
+    d = decide(inputs(zone=ZoneState(5.0, 18.0)))
+    assert d.state is State.OFF and d.action is Action.NONE and "off floor" in d.reason
+    # a held override is released once, then left alone
+    d2 = decide(inputs(zone=ZoneState(5.0, 18.0), memory=held()))
+    assert d2.state is State.OFF and d2.action is Action.RELEASE
+
+
+def test_zone_raised_by_optimum_start_is_not_manual():
+    """Evohome optimum start moves the zone to the next value up to an hour before the switchpoint."""
+    z = ZoneState(19.0, 18.0, next_switchpoint_at=T0 + timedelta(minutes=55), next_switchpoint_setpoint=19.0)
+    d = decide(inputs(memory=held(18.2), zone=z))
+    assert d.state is not State.MANUAL
+
+
+def test_zone_lagging_after_downward_switchpoint_is_not_manual():
+    """At 21:00 the schedule drops to 16 but the zone still reports 19 for a few minutes."""
+    z = ZoneState(19.0, 16.0, previous_schedule_setpoint=19.0, schedule_changed_at=T0 - timedelta(minutes=5))
+    d = decide(inputs(memory=held(19.2, minutes_ago=70), zone=z))
+    assert d.state is not State.MANUAL
+    # but a stale change long past no longer excuses it
+    old = ZoneState(19.0, 16.0, previous_schedule_setpoint=19.0, schedule_changed_at=T0 - timedelta(hours=2))
+    assert decide(inputs(memory=held(19.2, minutes_ago=70), zone=old)).state is State.MANUAL
