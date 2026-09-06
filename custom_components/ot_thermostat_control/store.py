@@ -1,8 +1,11 @@
 """JSON persistence for OT Thermostat Control adaptive state."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +26,9 @@ class OTStore:
             hass.config.path(f".storage/ot_thermostat_control_{entry_id}")
         )
         self._data: dict[str, Any] = {}
+        # The hub store is shared by all room coordinators, which cycle at the same
+        # instant; without this lock their concurrent saves race on the tmp file.
+        self._save_lock = asyncio.Lock()
 
     async def async_load(self) -> dict[str, Any]:
         """Load stored data from disk."""
@@ -41,10 +47,11 @@ class OTStore:
 
     async def async_save(self) -> None:
         """Save data to disk."""
-        try:
-            await self._hass.async_add_executor_job(self._write_file)
-        except OSError as err:
-            _LOGGER.error("Failed to save OT store %s: %s", self._path, err)
+        async with self._save_lock:
+            try:
+                await self._hass.async_add_executor_job(self._write_file)
+            except OSError as err:
+                _LOGGER.error("Failed to save OT store %s: %s", self._path, err)
 
     def _read_file(self) -> Any:
         """Read JSON file (runs in executor)."""
@@ -54,10 +61,17 @@ class OTStore:
     def _write_file(self) -> None:
         """Write JSON file (runs in executor)."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(self._data, fh, indent=2)
-        tmp.replace(self._path)
+        fd, tmp = tempfile.mkstemp(prefix=self._path.name + ".", suffix=".tmp", dir=self._path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(self._data, fh, indent=2)
+            os.replace(tmp, self._path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a value from the store."""
