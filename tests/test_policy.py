@@ -37,12 +37,26 @@ def test_disabled_room_does_nothing_when_nothing_held():
 
 
 def test_disabled_room_releases_a_held_override_once():
-    d = decide(inputs(room_enabled=False, memory=held()))
+    # zone still carries our 19.5: confirmed ours, released once
+    d = decide(inputs(room_enabled=False, memory=held(), zone=ZoneState(19.5, 19.0)))
     assert d.action is Action.RELEASE
     assert d.memory.last_written_at is None
     # second evaluation: nothing left to release
-    d2 = decide(inputs(room_enabled=False, memory=d.memory))
+    d2 = decide(inputs(room_enabled=False, memory=d.memory, zone=ZoneState(19.5, 19.0)))
     assert d2.action is Action.NONE
+
+
+def test_disabled_room_does_not_release_a_superseded_override():
+    """The user changed the zone after our write: releasing would cancel their action."""
+    d = decide(inputs(room_enabled=False, memory=held(19.5), zone=ZoneState(22.0, 19.0)))
+    assert d.action is Action.NONE and "another hand" in d.reason
+    assert d.memory.last_written_at is None  # ownership relinquished, no retry
+
+
+def test_disabled_room_with_unreadable_zone_lets_override_expire():
+    d = decide(inputs(room_enabled=False, memory=held(19.5), zone=ZoneState(None, 19.0)))
+    assert d.action is Action.NONE and "expire" in d.reason
+    assert d.memory.last_written_at is not None  # kept: confirmation may become possible
 
 
 def test_hub_disabled_and_holiday_are_off():
@@ -51,12 +65,12 @@ def test_hub_disabled_and_holiday_are_off():
 
 
 def test_outside_time_window_releases():
-    d = decide(inputs(within_time_window=False, memory=held()))
+    d = decide(inputs(within_time_window=False, memory=held(), zone=ZoneState(19.5, 19.0)))
     assert d.state is State.OUTSIDE_WINDOW and d.action is Action.RELEASE
 
 
 def test_no_computed_setpoint_releases_and_reports():
-    d = decide(inputs(computed_setpoint=None, memory=held()))
+    d = decide(inputs(computed_setpoint=None, memory=held(), zone=ZoneState(19.5, 19.0)))
     assert d.state is State.NO_DATA and d.action is Action.RELEASE
 
 
@@ -191,7 +205,7 @@ def test_shadow_never_acts_but_reports_would_write():
 
 def test_shadow_still_releases_when_turned_off():
     """Switching a room off while a v1-era override is held should still release it."""
-    d = decide(inputs(shadow_mode=True, room_enabled=False, memory=held()))
+    d = decide(inputs(shadow_mode=True, room_enabled=False, memory=held(19.0)))
     assert d.action is Action.RELEASE
 
 
@@ -214,9 +228,10 @@ def test_zone_parked_at_off_floor_is_off_not_manual():
     """A zone the owner turned off (evohome 5.0 floor) is deliberately off, not a dial change."""
     d = decide(inputs(zone=ZoneState(5.0, 18.0)))
     assert d.state is State.OFF and d.action is Action.NONE and "off floor" in d.reason
-    # a held override is released once, then left alone
+    # the 5.0 superseded any override of ours: never release it back to schedule
     d2 = decide(inputs(zone=ZoneState(5.0, 18.0), memory=held()))
-    assert d2.state is State.OFF and d2.action is Action.RELEASE
+    assert d2.state is State.OFF and d2.action is Action.NONE
+    assert d2.memory.last_written_at is None  # ownership relinquished
 
 
 def test_zone_raised_by_optimum_start_is_not_manual():
@@ -224,6 +239,36 @@ def test_zone_raised_by_optimum_start_is_not_manual():
     z = ZoneState(19.0, 18.0, next_switchpoint_at=T0 + timedelta(minutes=55), next_switchpoint_setpoint=19.0)
     d = decide(inputs(memory=held(18.2), zone=z))
     assert d.state is not State.MANUAL
+
+
+def test_manual_hold_deadline_is_frozen_at_detection():
+    """A schedule source that later advertises the FOLLOWING switchpoint must not extend the hold."""
+    z = ZoneState(21.0, 19.0, next_switchpoint_at=T0 + timedelta(minutes=30), next_switchpoint_setpoint=18.0)
+    d = decide(inputs(memory=held(19.5), zone=z))
+    assert d.state is State.MANUAL and d.memory.manual_release_at == T0 + timedelta(minutes=30)
+    # 31 min on: the switchpoint passed; cloud already advertises tomorrow's switchpoint
+    later_zone = ZoneState(21.0, 19.0, next_switchpoint_at=T0 + timedelta(hours=9), next_switchpoint_setpoint=18.0)
+    d2 = decide(inputs(now=T0 + timedelta(minutes=31), memory=d.memory, zone=later_zone))
+    assert d2.state is not State.MANUAL  # hold ended at the original switchpoint
+
+
+def test_manual_readjustment_restarts_the_hold():
+    d = decide(inputs(memory=held(19.5), zone=ZoneState(21.0, 19.0)))
+    assert d.state is State.MANUAL and d.memory.manual_setpoint == 21.0
+    # 110 min later the user picks a new value: a fresh hold starts
+    late = T0 + timedelta(minutes=110)
+    d2 = decide(inputs(now=late, memory=d.memory, zone=ZoneState(22.5, 19.0)))
+    assert d2.state is State.MANUAL and d2.memory.manual_detected_at == late
+    # 30 min after that (past the original 120-min mark) it is still holding
+    d3 = decide(inputs(now=late + timedelta(minutes=30), memory=d2.memory, zone=ZoneState(22.5, 19.0)))
+    assert d3.state is State.MANUAL
+
+
+def test_expired_write_value_is_not_treated_as_ours():
+    """Someone selecting the same number as an old, expired OT write is a manual change."""
+    m = held(19.5, minutes_ago=90)  # override expired (60 min)
+    d = decide(inputs(memory=m, zone=ZoneState(19.5, 19.0)))
+    assert d.state is State.MANUAL
 
 
 def test_zone_lagging_after_downward_switchpoint_is_not_manual():

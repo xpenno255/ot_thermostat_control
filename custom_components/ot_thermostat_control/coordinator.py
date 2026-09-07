@@ -8,7 +8,7 @@ publishes a snapshot for the entities.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -103,6 +103,7 @@ from .core.model import (
     ModelParams,
     adaptive_target_shift,
     operative_temperature,
+    steady_state_mrt,
     radiator_output_w,
     required_air_temperature,
 )
@@ -122,6 +123,11 @@ from .store import OTStore
 _LOGGER = logging.getLogger(__name__)
 
 UNAVAILABLE = ("unknown", "unavailable", "", None)
+
+# Final absolute bounds on anything written to a zone, whatever the model or overrides
+# produced (evohome accepts 5-35; nothing in this house should ever be driven above 30).
+ZONE_SETPOINT_MIN = 5.0
+ZONE_SETPOINT_MAX = 30.0
 
 
 @dataclass
@@ -196,6 +202,7 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         self._geometry_error: str | None = None
         self._retry_cancel = None
         self._schedule_source = "none"
+        self._restore_complete: bool = False  # set by setup once restored entity states are in
         self._tunables: dict[str, float] = {}
         hub_cfg = (hass.data.get(DOMAIN, {}).get("hub") or {}).get("config") or {}
         for key, default in ((CONF_TRUST_K, DEFAULT_TRUST_K), (CONF_CAP_UP, DEFAULT_CAP), (CONF_CAP_DOWN, DEFAULT_CAP)):
@@ -302,7 +309,8 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
 
     def _float_attr(self, entity_id: str | None, attr: str) -> float | None:
         st = self._state(entity_id)
-        if st is None:
+        # An unavailable entity retains its last attributes; they are stale, not data.
+        if st is None or st.state in UNAVAILABLE:
             return None
         try:
             v = st.attributes.get(attr)
@@ -458,12 +466,14 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             parsed = dt_util.parse_datetime(str(last))
             if parsed and dt_util.utcnow() - dt_util.as_utc(parsed) < timedelta(hours=SCHEDULE_FETCH_INTERVAL_H):
                 return
-        self._store.set("ramses_schedule_requested_at", dt_util.utcnow().isoformat())
         try:
             await self.hass.services.async_call("ramses_cc", "get_zone_schedule", {"entity_id": entity_id}, blocking=False)
-            _LOGGER.debug("OT %s: requested zone schedule over RF", self.room_name)
         except Exception:  # noqa: BLE001
+            # Not recorded as requested: retry on the next cycle rather than in a day.
             _LOGGER.debug("OT %s: ramses_cc.get_zone_schedule unavailable", self.room_name)
+            return
+        self._store.set("ramses_schedule_requested_at", dt_util.utcnow().isoformat())
+        _LOGGER.debug("OT %s: requested zone schedule over RF", self.room_name)
 
     def _schedule_from_ramses(self, entity_id: str | None) -> float | None:
         schedule = self._ramses_schedule(entity_id)
@@ -579,7 +589,8 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         dhw = self._is_on(hub.get(CONF_DHW_ACTIVE_ENTITY))
         manual = float(hub.get(CONF_MANUAL_FLOW_TEMP, DEFAULT_MANUAL_FLOW_TEMP))
         if hub_data is None:
-            return value if (value is not None and not dhw) else manual
+            # DHW state unknown counts as possibly-active: the reading may be DHW-elevated.
+            return value if (value is not None and dhw is False) else manual
         return hub_data.sample_flow_temp(value, dhw, manual)
 
     def _model_params(self, geometry: RoomGeometry | None) -> ModelParams:
@@ -612,10 +623,13 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             return dt_util.as_utc(parsed) if parsed else None
 
         sp = self._store.get("last_written_setpoint")
+        msp = self._store.get("manual_setpoint")
         return OverrideMemory(
             last_written_setpoint=float(sp) if sp is not None else None,
             last_written_at=dt("last_written_at"),
             manual_detected_at=dt("manual_detected_at"),
+            manual_release_at=dt("manual_release_at"),
+            manual_setpoint=float(msp) if msp is not None else None,
             window_open_since=dt("window_open_since"),
             window_closed_at=dt("window_closed_at"),
         )
@@ -624,6 +638,8 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         self._store.set("last_written_setpoint", m.last_written_setpoint)
         self._store.set("last_written_at", m.last_written_at.isoformat() if m.last_written_at else None)
         self._store.set("manual_detected_at", m.manual_detected_at.isoformat() if m.manual_detected_at else None)
+        self._store.set("manual_release_at", m.manual_release_at.isoformat() if m.manual_release_at else None)
+        self._store.set("manual_setpoint", m.manual_setpoint)
         self._store.set("window_open_since", m.window_open_since.isoformat() if m.window_open_since else None)
         self._store.set("window_closed_at", m.window_closed_at.isoformat() if m.window_closed_at else None)
 
@@ -653,28 +669,42 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
     # Action
     # ------------------------------------------------------------------
 
-    async def _perform(self, decision: Decision) -> None:
+    async def _perform(self, decision: Decision) -> bool:
+        """Carry out the decision's action. Returns False when the service call did not
+        complete, so the caller must not record the action as done."""
+        if decision.action is Action.NONE:
+            return True
         primary = self._config.get(CONF_PRIMARY_CLIMATE)
-        if not primary or decision.action is Action.NONE:
-            return
+        if not primary:
+            _LOGGER.warning("OT %s: no primary climate entity; cannot %s", self.room_name, decision.action.value)
+            return False
         if decision.action is Action.WRITE:
+            setpoint = min(max(float(decision.setpoint), ZONE_SETPOINT_MIN), ZONE_SETPOINT_MAX)
+            if setpoint != decision.setpoint:
+                _LOGGER.warning("OT %s: clamped write %s to zone bounds -> %s", self.room_name, decision.setpoint, setpoint)
             data = {
                 "entity_id": primary,
                 "mode": "temporary_override",
-                "setpoint": decision.setpoint,
+                "setpoint": setpoint,
                 "duration": {"minutes": int(self._config.get(CONF_OVERRIDE_DURATION, DEFAULT_OVERRIDE_DURATION))},
             }
         else:
             data = {"entity_id": primary, "mode": "follow_schedule"}
         try:
-            await self.hass.services.async_call("ramses_cc", "set_zone_mode", data, blocking=False)
-            _LOGGER.info("OT %s: %s %s (%s)", self.room_name, decision.action.value, decision.setpoint, decision.reason)
-        except Exception:  # noqa: BLE001
-            _LOGGER.warning("OT %s: ramses_cc.set_zone_mode failed", self.room_name)
+            await self.hass.services.async_call("ramses_cc", "set_zone_mode", data, blocking=True)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("OT %s: ramses_cc.set_zone_mode failed: %s", self.room_name, exc)
+            return False
+        _LOGGER.info("OT %s: %s %s (%s)", self.room_name, decision.action.value, decision.setpoint, decision.reason)
+        return True
 
     # ------------------------------------------------------------------
     # Main cycle
     # ------------------------------------------------------------------
+
+    def mark_restore_complete(self) -> None:
+        """Called by setup after entity platforms (and their restored states) are loaded."""
+        self._restore_complete = True
 
     async def _async_update_data(self) -> OTCoordinatorData:
         try:
@@ -682,6 +712,9 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         except Exception as exc:  # noqa: BLE001
             _LOGGER.exception("OT %s: update failed", self.room_name)
             if self.data is not None:
+                note = f"update failed ({type(exc).__name__}); showing last good data"
+                if note not in self.data.fallbacks:
+                    self.data.fallbacks = [*self.data.fallbacks, note]
                 return self.data
             raise UpdateFailed(str(exc)) from exc
 
@@ -725,7 +758,8 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         hub_cfg = self._hub_config()
         if zone.schedule_setpoint is not None:
             target = zone.schedule_setpoint + d.occupancy_offset
-            if bool(hub_cfg.get(CONF_ADAPTIVE_ENABLED, DEFAULT_ADAPTIVE_ENABLED)) and hub_data is not None and hub_data.running_mean_ready:
+            if bool(hub_cfg.get(CONF_ADAPTIVE_ENABLED, DEFAULT_ADAPTIVE_ENABLED)) and hub_data is not None \
+                    and hub_data.running_mean_ready and d.running_mean_outdoor is not None:
                 d.adaptive_shift = round(adaptive_target_shift(
                     d.running_mean_outdoor,
                     float(hub_cfg.get(CONF_ADAPTIVE_REF, DEFAULT_ADAPTIVE_REF)),
@@ -751,7 +785,14 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             d.solar_k = round(correction.solar_k, 3)
             d.sum_l = round(correction.sum_l, 4)
             if d.air_temp is not None:
-                d.operative_temp = round(operative_temperature(d.air_temp, correction.mrt_at_setpoint), 2)
+                # Current-condition estimate: MRT must be evaluated at the measured air
+                # temperature, not at the hypothetical setpoint air (both remain
+                # steady-state approximations, not measurements).
+                try:
+                    mrt_now = steady_state_mrt(geometry.surfaces, env, d.air_temp, self._model_params(geometry))
+                    d.operative_temp = round(operative_temperature(d.air_temp, mrt_now.mrt), 2)
+                except ValueError:
+                    pass
 
         d.flow_temp_used = self._flow_temperature()
         if geometry is not None and d.flow_temp_used is not None and d.air_temp is not None:
@@ -783,10 +824,23 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         d.adjacent_door_open = inputs.any_adjacent_door_open
         d.fallbacks = fallbacks
 
-        await self._perform(decision)
-        self._save_memory(decision.memory)
-        d.last_written_setpoint = decision.memory.last_written_setpoint
-        d.last_write = decision.memory.last_written_at
+        memory = decision.memory
+        if not self._restore_complete and decision.action is not Action.NONE:
+            # Entities (mode select, enable switches) restore their previous state during
+            # platform setup, after this first refresh; acting before that could write
+            # from a room the owner had switched off or back to shadow.
+            memory = inputs.memory
+            d.reason = decision.reason + " (deferred: restore pending)"
+        elif not await self._perform(decision):
+            # The service call did not go through: keep the previous write memory so the
+            # next cycle retries instead of believing the zone was updated.
+            memory = replace(memory,
+                             last_written_setpoint=inputs.memory.last_written_setpoint,
+                             last_written_at=inputs.memory.last_written_at)
+            d.reason = decision.reason + " (service call failed; will retry)"
+        self._save_memory(memory)
+        d.last_written_setpoint = memory.last_written_setpoint
+        d.last_write = memory.last_written_at
         await self._store.async_save()
         if hub_data is not None:
             await hub_data.async_save()

@@ -1,6 +1,9 @@
 """Shared entity base classes."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -8,7 +11,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import OTCoordinator, OTCoordinatorData
 
-VERSION = "2.0.0"
+# Read once at import so the device registry always shows the installed version.
+VERSION = json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
 
 
 class OTRoomEntity(CoordinatorEntity[OTCoordinator]):

@@ -55,6 +55,10 @@ async def _async_setup_room_entry(hass: HomeAssistant, entry: ConfigEntry) -> bo
     hass.data[DOMAIN]["rooms"][coordinator.room_id] = coordinator
     async_remove_stale_entities(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, ROOM_PLATFORMS)
+    # Entity platforms restore enable/mode state during setup above; only now may the
+    # coordinator act on the zone. Refresh so the first actionable cycle uses restored state.
+    coordinator.mark_restore_complete()
+    await coordinator.async_request_refresh()
     entry.async_on_unload(entry.add_update_listener(async_update_options))
     return True
 

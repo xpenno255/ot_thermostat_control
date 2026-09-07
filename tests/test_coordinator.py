@@ -150,11 +150,25 @@ async def test_manual_dial_change_is_left_alone(hass: HomeAssistant):
 async def test_disabling_room_releases_override(hass: HomeAssistant):
     hub, room, calls = await _setup(hass, MODE_ACTIVE)
     coordinator = room.runtime_data
-    assert len([c for c in calls if "mode" in c]) == 1, (coordinator.data.state, coordinator.data.reason, coordinator.data.fallbacks)
+    writes = [c for c in calls if "mode" in c]
+    assert len(writes) == 1, (coordinator.data.state, coordinator.data.reason, coordinator.data.fallbacks)
+    # Zone echoes our write, so the override is confirmed ours and gets released on disable.
+    _set_states(hass, zone_sp=writes[0]["setpoint"])
     coordinator.enabled = False
     await coordinator.async_refresh()
     assert coordinator.data.state == "off"
     assert [c for c in calls if "mode" in c][-1]["mode"] == "follow_schedule"
+
+
+async def test_disabling_room_leaves_user_override_alone(hass: HomeAssistant):
+    hub, room, calls = await _setup(hass, MODE_ACTIVE)
+    coordinator = room.runtime_data
+    assert len([c for c in calls if "mode" in c]) == 1
+    _set_states(hass, zone_sp=22.0)  # user turned the dial after our write
+    coordinator.enabled = False
+    await coordinator.async_refresh()
+    assert coordinator.data.state == "off"
+    assert len([c for c in calls if "mode" in c]) == 1  # no follow_schedule sent
 
 
 async def test_missing_room_file_is_reported_not_fatal(hass: HomeAssistant):

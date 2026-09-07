@@ -7,7 +7,7 @@ supplied by the caller.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import Enum
 
@@ -63,6 +63,8 @@ class OverrideMemory:
     last_written_setpoint: float | None = None
     last_written_at: datetime | None = None
     manual_detected_at: datetime | None = None
+    manual_release_at: datetime | None = None  # hold deadline frozen at detection time
+    manual_setpoint: float | None = None  # the hand-set value; a different value restarts the hold
     window_open_since: datetime | None = None
     window_closed_at: datetime | None = None
 
@@ -111,29 +113,36 @@ def _override_expiring(m: OverrideMemory, now: datetime, p: PolicyParams) -> boo
 
 
 def _release_or_none(state: State, reason: str, inp: PolicyInputs) -> Decision:
-    """Leave the zone alone; release once if we still hold an override."""
+    """Leave the zone alone; release once if the zone still carries OUR override.
+
+    Releasing blindly would cancel a newer manual override (someone turned the dial,
+    or parked the zone at the off floor, after our write). So only send follow_schedule
+    when the zone's current setpoint still matches what we wrote; if it differs, the
+    override was superseded — relinquish ownership without touching the zone. If the
+    zone is unreadable, do nothing and let the temporary override expire on its own.
+    """
     m = inp.memory
-    if _holding_override(m, inp.now, inp.params):
-        cleared = OverrideMemory(
-            last_written_setpoint=None,
-            last_written_at=None,
-            manual_detected_at=m.manual_detected_at,
-            window_open_since=m.window_open_since,
-            window_closed_at=m.window_closed_at,
-        )
+    if not _holding_override(m, inp.now, inp.params):
+        return Decision(state, Action.NONE, None, reason, m)
+    cur = inp.zone.current_setpoint
+    tol = inp.params.step / 2 + 1e-6
+    cleared = replace(m, last_written_setpoint=None, last_written_at=None)
+    if cur is not None and m.last_written_setpoint is not None and abs(cur - m.last_written_setpoint) < tol:
         return Decision(state, Action.RELEASE, None, reason + "; releasing held override", cleared)
-    return Decision(state, Action.NONE, None, reason, m)
+    if cur is not None:
+        return Decision(state, Action.NONE, None, reason + "; zone changed by another hand, leaving alone", cleared)
+    return Decision(state, Action.NONE, None, reason + "; zone unreadable, letting override expire", m)
 
 
 def _update_window_memory(inp: PolicyInputs) -> OverrideMemory:
     m = inp.memory
     if inp.any_window_open:
         if m.window_open_since is None:
-            return OverrideMemory(m.last_written_setpoint, m.last_written_at, m.manual_detected_at, inp.now, None)
+            return replace(m, window_open_since=inp.now, window_closed_at=None)
         return m
     if m.window_open_since is not None:
         # transition open -> closed: start the close delay
-        return OverrideMemory(m.last_written_setpoint, m.last_written_at, m.manual_detected_at, None, inp.now)
+        return replace(m, window_open_since=None, window_closed_at=inp.now)
     return m
 
 
@@ -152,7 +161,13 @@ def _manual_override(inp: PolicyInputs) -> bool:
     if z.current_setpoint is None or z.schedule_setpoint is None:
         return False  # without a schedule reference we cannot tell manual from scheduled
     tol = p.step / 2 + 1e-6
-    matches_ours = m.last_written_setpoint is not None and abs(z.current_setpoint - m.last_written_setpoint) < tol
+    # Only an override still in force counts as ours; an expired write's value could
+    # equally be a fresh manual selection of the same number.
+    matches_ours = (
+        m.last_written_setpoint is not None
+        and _holding_override(m, inp.now, p)
+        and abs(z.current_setpoint - m.last_written_setpoint) < tol
+    )
     matches_schedule = z.schedule_setpoint is not None and abs(z.current_setpoint - z.schedule_setpoint) < tol
     if matches_ours or matches_schedule:
         return False
@@ -192,7 +207,7 @@ def _write_needed(target: float, m: OverrideMemory, inp: PolicyInputs) -> bool:
 def _write(state: State, target: float, reason: str, inp: PolicyInputs, m: OverrideMemory) -> Decision:
     if not _write_needed(target, m, inp):
         return Decision(state, Action.NONE, None, reason + "; unchanged, override still valid", m)
-    new_m = OverrideMemory(target, inp.now, m.manual_detected_at, m.window_open_since, m.window_closed_at)
+    new_m = replace(m, last_written_setpoint=target, last_written_at=inp.now)
     return Decision(state, Action.WRITE, target, reason, new_m)
 
 
@@ -211,21 +226,32 @@ def decide(inp: PolicyInputs) -> Decision:
     if inp.zone.current_setpoint is not None and inp.zone.current_setpoint <= p.zone_off_setpoint + p.step / 2:
         return _release_or_none(State.OFF, f"zone setpoint {inp.zone.current_setpoint} at off floor; leaving alone", inp)
 
-    # 3. Manual override detection and hold.
+    # 3. Manual override detection and hold. The hold deadline is frozen when the manual
+    # change is first seen (min of the hold duration and the then-upcoming switchpoint),
+    # so a schedule source that later advertises the following switchpoint cannot extend
+    # it. A hand moving the dial to a different value restarts the hold.
     m = _update_window_memory(inp)
     if _manual_override(inp):
-        since = m.manual_detected_at or inp.now
-        held_for = inp.now - since
-        past_switchpoint = inp.zone.next_switchpoint_at is not None and m.manual_detected_at is not None \
-            and inp.zone.next_switchpoint_at <= inp.now
-        if held_for < timedelta(minutes=p.manual_hold_minutes) and not past_switchpoint:
-            m2 = OverrideMemory(m.last_written_setpoint, m.last_written_at, since, m.window_open_since, m.window_closed_at)
+        tol = p.step / 2 + 1e-6
+        readjusted = m.manual_setpoint is not None and inp.zone.current_setpoint is not None \
+            and abs(inp.zone.current_setpoint - m.manual_setpoint) >= tol
+        if m.manual_detected_at is None or readjusted:
+            since = inp.now
+            release_at = since + timedelta(minutes=p.manual_hold_minutes)
+            if inp.zone.next_switchpoint_at is not None and inp.now < inp.zone.next_switchpoint_at < release_at:
+                release_at = inp.zone.next_switchpoint_at
+        else:
+            since = m.manual_detected_at
+            release_at = m.manual_release_at or (since + timedelta(minutes=p.manual_hold_minutes))
+        if inp.now < release_at:
+            m2 = replace(m, manual_detected_at=since, manual_release_at=release_at,
+                         manual_setpoint=inp.zone.current_setpoint)
             return Decision(State.MANUAL, Action.NONE, None,
                             f"zone setpoint {inp.zone.current_setpoint} set by hand; holding", m2)
         # hold expired: fall through and resume, forgetting the manual mark and our stale write
-        m = OverrideMemory(None, None, None, m.window_open_since, m.window_closed_at)
+        m = OverrideMemory(window_open_since=m.window_open_since, window_closed_at=m.window_closed_at)
     elif m.manual_detected_at is not None:
-        m = OverrideMemory(m.last_written_setpoint, m.last_written_at, None, m.window_open_since, m.window_closed_at)
+        m = replace(m, manual_detected_at=None, manual_release_at=None, manual_setpoint=None)
 
     # 4. Window / door overrides beat the model.
     if _window_override_active(m, inp):

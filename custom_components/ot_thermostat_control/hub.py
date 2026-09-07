@@ -83,7 +83,8 @@ class OTHubData:
     def sample_flow_temp(self, value: float | None, dhw_active: bool | None, manual: float | None) -> float | None:
         """Update the flow temperature in use. Returns the value to use now."""
         self.dhw_active_seen = bool(dhw_active)
-        if value is not None and not dhw_active:
+        # Only accept a reading when DHW is known inactive; unknown may be DHW-elevated.
+        if value is not None and dhw_active is False:
             self.flow_temp_used = value
             self.flow_temp_source = "entity"
         elif self.flow_temp_used is None and manual is not None:

@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import ENTRY_TYPE_HUB
+from .const import DOMAIN, ENTRY_TYPE_HUB
 from .coordinator import OTCoordinator
 from .entity import OTRoomEntity, hub_device_info
 from .hub import OTHubData
@@ -86,7 +86,14 @@ class OTGlobalEnableSwitch(SwitchEntity, RestoreEntity):
     async def async_turn_on(self, **kwargs) -> None:
         self._hub.global_enabled = True
         self.async_write_ha_state()
+        await self._refresh_rooms()
 
     async def async_turn_off(self, **kwargs) -> None:
         self._hub.global_enabled = False
         self.async_write_ha_state()
+        await self._refresh_rooms()
+
+    async def _refresh_rooms(self) -> None:
+        """Global enable must take effect now, not at each room's next polling cycle."""
+        for coordinator in self.hass.data.get(DOMAIN, {}).get("rooms", {}).values():
+            await coordinator.async_request_refresh()
