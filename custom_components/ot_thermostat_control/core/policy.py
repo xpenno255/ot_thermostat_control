@@ -288,15 +288,24 @@ def decide(inp: PolicyInputs) -> Decision:
     elif hold or _manual_override(inp):
         readjusted = m.manual_setpoint is not None and z.current_setpoint is not None \
             and abs(z.current_setpoint - m.manual_setpoint) >= tol
-        if m.manual_detected_at is None or readjusted:
-            since = inp.now
-            release_at = since + timedelta(minutes=p.manual_hold_minutes)
-            if z.next_switchpoint_at is not None and inp.now < z.next_switchpoint_at < release_at:
-                release_at = z.next_switchpoint_at
+        expired_unchanged = (
+            m.manual_release_at is not None and inp.now >= m.manual_release_at and not readjusted
+        )
+        if expired_unchanged:
+            # Reclaim pending: fall through and resume. The manual record is kept (with
+            # its past deadline) so that until the takeover write actually succeeds — or
+            # the zone returns to schedule, or the hand picks a new value — the unchanged
+            # manual target is not re-detected as a fresh hold.
+            m = replace(m, last_written_setpoint=None, last_written_at=None)
         else:
-            since = m.manual_detected_at
-            release_at = m.manual_release_at or (since + timedelta(minutes=p.manual_hold_minutes))
-        if inp.now < release_at:
+            if m.manual_detected_at is None or readjusted:
+                since = inp.now
+                release_at = since + timedelta(minutes=p.manual_hold_minutes)
+                if z.next_switchpoint_at is not None and inp.now < z.next_switchpoint_at < release_at:
+                    release_at = z.next_switchpoint_at
+            else:
+                since = m.manual_detected_at
+                release_at = m.manual_release_at or (since + timedelta(minutes=p.manual_hold_minutes))
             held_value = z.current_setpoint if z.current_setpoint is not None else m.manual_setpoint
             # The user has taken over: our old write no longer constitutes ownership.
             # Keeping it would let off/disable branches "release" the user's setting,
@@ -306,9 +315,9 @@ def decide(inp: PolicyInputs) -> Decision:
                          last_written_setpoint=None, last_written_at=None)
             return Decision(State.MANUAL, Action.NONE, None,
                             f"zone setpoint {held_value} set by hand; holding", m2)
-        # hold expired: fall through and resume, forgetting the manual mark and our stale write
-        m = OverrideMemory(window_open_since=m.window_open_since, window_closed_at=m.window_closed_at)
-    elif m.manual_detected_at is not None:
+    elif m.manual_detected_at is not None and z.current_setpoint is not None:
+        # Cleared only on evidence (zone readable and no longer manual); an unreadable
+        # zone keeps the record so a pending reclaim is not re-detected as a fresh hold.
         m = replace(m, manual_detected_at=None, manual_release_at=None, manual_setpoint=None)
 
     # 4. Window / door overrides beat the model.

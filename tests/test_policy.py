@@ -112,10 +112,13 @@ def test_manual_dial_change_is_respected_then_resumes():
     # 90 minutes later, still within the 120-minute hold
     later = inputs(now=T0 + timedelta(minutes=90), memory=d.memory, zone=ZoneState(21.0, 19.0))
     assert decide(later).state is State.MANUAL
-    # After the hold expires we resume and write our value again
+    # After the hold expires we resume and write our value again; the manual record is
+    # kept (reclaim pending) until the zone echoes our write, then cleared.
     much_later = inputs(now=T0 + timedelta(minutes=125), memory=d.memory, zone=ZoneState(21.0, 19.0))
     d3 = decide(much_later)
-    assert d3.state is State.ACTIVE and d3.action is Action.WRITE and d3.memory.manual_detected_at is None
+    assert d3.state is State.ACTIVE and d3.action is Action.WRITE
+    echoed = inputs(now=T0 + timedelta(minutes=130), memory=d3.memory, zone=ZoneState(d3.setpoint, 19.0))
+    assert decide(echoed).memory.manual_detected_at is None
 
 
 def test_manual_hold_ends_at_next_switchpoint():
@@ -367,6 +370,30 @@ def test_cancelled_hold_survives_no_data_and_preheat_paths():
     z = ZoneState(19.0, 19.0, next_switchpoint_at=T0 + timedelta(minutes=40), next_switchpoint_setpoint=21.0)
     d3 = decide(inputs(now=T0 + timedelta(minutes=10), memory=d.memory, zone=z))
     assert d3.state is State.PREHEAT and d3.memory.manual_detected_at is None
+
+
+def test_expired_hold_is_not_redetected_before_reclaim():
+    """Hold expires during a NO_DATA gap; on recovery the unchanged value must resume, not re-hold."""
+    d = decide(inputs(zone=ZoneState(22.0, 19.0)))
+    assert d.state is State.MANUAL
+    after = T0 + timedelta(minutes=125)  # past the 120-min hold
+    # data gap at expiry: NO_DATA keeps the (expired) record
+    d2 = decide(inputs(now=after, memory=d.memory, computed_setpoint=None, zone=ZoneState(22.0, 19.0)))
+    assert d2.state is State.NO_DATA and d2.memory.manual_release_at is not None
+    # data recovers: resume and write, no fresh hold
+    d3 = decide(inputs(now=after + timedelta(minutes=5), memory=d2.memory, zone=ZoneState(22.0, 19.0)))
+    assert d3.state is State.ACTIVE and d3.action is Action.WRITE
+    # once the zone echoes our write, the manual record is finally cleared
+    d4 = decide(inputs(now=after + timedelta(minutes=10), memory=d3.memory,
+                       zone=ZoneState(d3.setpoint, 19.0)))
+    assert d4.memory.manual_detected_at is None
+
+
+def test_expired_hold_readjustment_still_starts_fresh_hold():
+    d = decide(inputs(zone=ZoneState(22.0, 19.0)))
+    after = T0 + timedelta(minutes=125)
+    d2 = decide(inputs(now=after, memory=d.memory, zone=ZoneState(23.5, 19.0)))
+    assert d2.state is State.MANUAL and d2.memory.manual_detected_at == after
 
 
 def test_expired_write_value_is_not_treated_as_ours():
