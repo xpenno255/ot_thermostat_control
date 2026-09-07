@@ -327,6 +327,9 @@ def decide(inp: PolicyInputs) -> Decision:
         echo_of_ours = (
             z.current_setpoint is not None
             and m.last_written_setpoint is not None
+            and m.last_written_at is not None
+            and m.manual_detected_at is not None
+            and m.last_written_at >= m.manual_detected_at  # only a reclaim write counts
             and _holding_override(m, inp.now, p)
             and abs(z.current_setpoint - m.last_written_setpoint) < tol
         )
