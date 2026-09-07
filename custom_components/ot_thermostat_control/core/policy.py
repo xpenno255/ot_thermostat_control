@@ -117,7 +117,7 @@ def _override_expiring(m: OverrideMemory, now: datetime, p: PolicyParams) -> boo
     return remaining <= timedelta(minutes=p.refresh_before_expiry_minutes)
 
 
-def _release_or_none(state: State, reason: str, inp: PolicyInputs) -> Decision:
+def _release_or_none(state: State, reason: str, inp: PolicyInputs, memory: OverrideMemory | None = None) -> Decision:
     """Leave the zone alone; release once if the zone still carries OUR override.
 
     Releasing blindly would cancel a newer manual override (someone turned the dial,
@@ -125,8 +125,11 @@ def _release_or_none(state: State, reason: str, inp: PolicyInputs) -> Decision:
     when the zone's current setpoint still matches what we wrote; if it differs, the
     override was superseded — relinquish ownership without touching the zone. If the
     zone is unreadable, do nothing and let the temporary override expire on its own.
+
+    `memory` carries bookkeeping already updated this evaluation (window/manual fields);
+    it defaults to the inputs' memory for branches that run before any update.
     """
-    m = inp.memory
+    m = memory if memory is not None else inp.memory
     if not _holding_override(m, inp.now, inp.params):
         return Decision(state, Action.NONE, None, reason, m)
     cur = inp.zone.current_setpoint
@@ -295,8 +298,12 @@ def decide(inp: PolicyInputs) -> Decision:
             release_at = m.manual_release_at or (since + timedelta(minutes=p.manual_hold_minutes))
         if inp.now < release_at:
             held_value = z.current_setpoint if z.current_setpoint is not None else m.manual_setpoint
+            # The user has taken over: our old write no longer constitutes ownership.
+            # Keeping it would let off/disable branches "release" the user's setting,
+            # or let the floor exemption mistake their 5.0 for our clamp echo.
             m2 = replace(m, manual_detected_at=since, manual_release_at=release_at,
-                         manual_setpoint=held_value)
+                         manual_setpoint=held_value,
+                         last_written_setpoint=None, last_written_at=None)
             return Decision(State.MANUAL, Action.NONE, None,
                             f"zone setpoint {held_value} set by hand; holding", m2)
         # hold expired: fall through and resume, forgetting the manual mark and our stale write
@@ -321,7 +328,7 @@ def decide(inp: PolicyInputs) -> Decision:
 
     # 5. Nothing to correct with.
     if inp.computed_setpoint is None:
-        return _release_or_none(State.NO_DATA, "no computed setpoint", inp)
+        return _release_or_none(State.NO_DATA, "no computed setpoint", inp, m)
 
     # 6. Phase-1 pre-heat: release ahead of an upward switchpoint so evohome's optimum start can act.
     z = inp.zone
@@ -334,7 +341,7 @@ def decide(inp: PolicyInputs) -> Decision:
     ):
         if inp.shadow_mode:
             return Decision(State.SHADOW, Action.NONE, None, "pre-heat release window (shadow)", m, would_write=None)
-        return _release_or_none(State.PREHEAT, "upward switchpoint soon; leaving zone to optimum start", inp)
+        return _release_or_none(State.PREHEAT, "upward switchpoint soon; leaving zone to optimum start", inp, m)
 
     # 7. Normal operation.
     target = inp.computed_setpoint

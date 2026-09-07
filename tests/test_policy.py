@@ -331,6 +331,44 @@ def test_shadow_would_write_is_bounded_like_active():
     assert d.would_write == 30.0
 
 
+def test_manual_takeover_relinquishes_write_ownership():
+    """Once manual control is detected, our old write is dead: disable must not release."""
+    d = decide(inputs(memory=held(20.5, minutes_ago=10), zone=ZoneState(22.0, 19.0)))
+    assert d.state is State.MANUAL and d.memory.last_written_at is None
+    # user returns to our old value, then OT is disabled: their setting stays
+    d2 = decide(inputs(now=T0 + timedelta(minutes=10), memory=d.memory, zone=ZoneState(20.5, 19.0)))
+    assert d2.state is State.MANUAL
+    d3 = decide(inputs(now=T0 + timedelta(minutes=15), room_enabled=False,
+                       memory=d2.memory, zone=ZoneState(20.5, 19.0)))
+    assert d3.action is Action.NONE
+
+
+def test_user_five_after_manual_takeover_is_owner_off():
+    """OT wrote 5 (clamp), user set 22, user set 5: that 5 is the owner's off, not our echo."""
+    d = decide(inputs(computed_setpoint=4.0, zone=ZoneState(6.0, 6.0)))
+    assert d.setpoint == 5.0
+    d2 = decide(inputs(now=T0 + timedelta(minutes=5), memory=d.memory,
+                       computed_setpoint=4.0, zone=ZoneState(22.0, 6.0)))
+    assert d2.state is State.MANUAL
+    d3 = decide(inputs(now=T0 + timedelta(minutes=10), memory=d2.memory,
+                       computed_setpoint=4.0, zone=ZoneState(5.0, 6.0)))
+    assert d3.state is State.OFF and d3.action is Action.NONE
+
+
+def test_cancelled_hold_survives_no_data_and_preheat_paths():
+    """Zone back at schedule clears the hold even when the branch taken is NO_DATA/PREHEAT."""
+    d = decide(inputs(zone=ZoneState(22.0, 19.0)))
+    assert d.state is State.MANUAL
+    # back at schedule + no computed setpoint: NO_DATA must persist the cleared hold
+    d2 = decide(inputs(now=T0 + timedelta(minutes=10), memory=d.memory,
+                       computed_setpoint=None, zone=ZoneState(19.0, 19.0)))
+    assert d2.state is State.NO_DATA and d2.memory.manual_detected_at is None
+    # back at schedule + imminent upward switchpoint: PREHEAT must persist it too
+    z = ZoneState(19.0, 19.0, next_switchpoint_at=T0 + timedelta(minutes=40), next_switchpoint_setpoint=21.0)
+    d3 = decide(inputs(now=T0 + timedelta(minutes=10), memory=d.memory, zone=z))
+    assert d3.state is State.PREHEAT and d3.memory.manual_detected_at is None
+
+
 def test_expired_write_value_is_not_treated_as_ours():
     """Someone selecting the same number as an old, expired OT write is a manual change."""
     m = held(19.5, minutes_ago=90)  # override expired (60 min)
