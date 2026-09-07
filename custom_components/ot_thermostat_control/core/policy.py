@@ -288,37 +288,50 @@ def decide(inp: PolicyInputs) -> Decision:
     elif hold or _manual_override(inp):
         readjusted = m.manual_setpoint is not None and z.current_setpoint is not None \
             and abs(z.current_setpoint - m.manual_setpoint) >= tol
-        expired_unchanged = (
-            m.manual_release_at is not None and inp.now >= m.manual_release_at and not readjusted
-        )
-        if expired_unchanged:
-            # Reclaim pending: fall through and resume. The manual record is kept (with
-            # its past deadline) so that until the takeover write actually succeeds — or
-            # the zone returns to schedule, or the hand picks a new value — the unchanged
-            # manual target is not re-detected as a fresh hold.
-            m = replace(m, last_written_setpoint=None, last_written_at=None)
+        if m.manual_detected_at is None or readjusted:
+            since = inp.now
+            release_at = since + timedelta(minutes=p.manual_hold_minutes)
+            if z.next_switchpoint_at is not None and inp.now < z.next_switchpoint_at < release_at:
+                release_at = z.next_switchpoint_at
         else:
-            if m.manual_detected_at is None or readjusted:
-                since = inp.now
-                release_at = since + timedelta(minutes=p.manual_hold_minutes)
-                if z.next_switchpoint_at is not None and inp.now < z.next_switchpoint_at < release_at:
-                    release_at = z.next_switchpoint_at
-            else:
-                since = m.manual_detected_at
-                release_at = m.manual_release_at or (since + timedelta(minutes=p.manual_hold_minutes))
-            held_value = z.current_setpoint if z.current_setpoint is not None else m.manual_setpoint
+            since = m.manual_detected_at
+            release_at = m.manual_release_at or (since + timedelta(minutes=p.manual_hold_minutes))
+        held_value = z.current_setpoint if z.current_setpoint is not None else m.manual_setpoint
+        m = replace(m, manual_detected_at=since, manual_release_at=release_at, manual_setpoint=held_value)
+        if inp.now < release_at:
             # The user has taken over: our old write no longer constitutes ownership.
             # Keeping it would let off/disable branches "release" the user's setting,
             # or let the floor exemption mistake their 5.0 for our clamp echo.
-            m2 = replace(m, manual_detected_at=since, manual_release_at=release_at,
-                         manual_setpoint=held_value,
-                         last_written_setpoint=None, last_written_at=None)
+            m = replace(m, last_written_setpoint=None, last_written_at=None)
             return Decision(State.MANUAL, Action.NONE, None,
-                            f"zone setpoint {held_value} set by hand; holding", m2)
-    elif m.manual_detected_at is not None and z.current_setpoint is not None:
-        # Cleared only on evidence (zone readable and no longer manual); an unreadable
-        # zone keeps the record so a pending reclaim is not re-detected as a fresh hold.
-        m = replace(m, manual_detected_at=None, manual_release_at=None, manual_setpoint=None)
+                            f"zone setpoint {held_value} set by hand; holding", m)
+        # Hold expired (a zero-minute hold expires immediately): reclaim pending. Keep
+        # the record (with its past deadline) so the unchanged manual target is not
+        # re-detected as a fresh hold before control actually resumes. An in-force write
+        # made AFTER detection is a reclaim the zone has not yet echoed — keep it so the
+        # normal suppression/refresh cadence applies instead of re-sending every cycle.
+        # A write predating the manual change is dead: clear it so reclaim happens now.
+        reclaim_in_flight = (
+            m.last_written_at is not None
+            and m.manual_detected_at is not None
+            and m.last_written_at >= m.manual_detected_at
+            and _holding_override(m, inp.now, p)
+        )
+        if not reclaim_in_flight:
+            m = replace(m, last_written_setpoint=None, last_written_at=None)
+    elif m.manual_detected_at is not None:
+        # Clear the record only on positive evidence the manual episode ended: the zone
+        # sits at its schedule value, or it echoes our own in-force write (successful
+        # reclaim). A missing schedule or a grace-window match is not proof — keep the
+        # record so a pending reclaim is not re-detected as a fresh hold.
+        echo_of_ours = (
+            z.current_setpoint is not None
+            and m.last_written_setpoint is not None
+            and _holding_override(m, inp.now, p)
+            and abs(z.current_setpoint - m.last_written_setpoint) < tol
+        )
+        if back_at_schedule or echo_of_ours:
+            m = replace(m, manual_detected_at=None, manual_release_at=None, manual_setpoint=None)
 
     # 4. Window / door overrides beat the model.
     if _window_override_active(m, inp):

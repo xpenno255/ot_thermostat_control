@@ -396,6 +396,34 @@ def test_expired_hold_readjustment_still_starts_fresh_hold():
     assert d2.state is State.MANUAL and d2.memory.manual_detected_at == after
 
 
+def test_missing_schedule_does_not_clear_reclaim_record():
+    """Schedule vanishes while a reclaim is pending: the record must survive its return."""
+    d = decide(inputs(zone=ZoneState(22.0, 19.0)))
+    after = T0 + timedelta(minutes=125)
+    d2 = decide(inputs(now=after, memory=d.memory, computed_setpoint=None, zone=ZoneState(22.0, None)))
+    assert d2.memory.manual_release_at is not None  # kept: no schedule, no evidence
+    # schedule returns: unchanged 22 resumes with a write, no fresh hold
+    d3 = decide(inputs(now=after + timedelta(minutes=5), memory=d2.memory, zone=ZoneState(22.0, 19.0)))
+    assert d3.state is State.ACTIVE and d3.action is Action.WRITE
+
+
+def test_accepted_reclaim_is_not_resent_every_cycle():
+    """Zone hasn't echoed the reclaim write yet: normal suppression applies, no write storm."""
+    d = decide(inputs(zone=ZoneState(22.0, 19.0)))
+    after = T0 + timedelta(minutes=125)
+    d2 = decide(inputs(now=after, memory=d.memory, zone=ZoneState(22.0, 19.0)))
+    assert d2.action is Action.WRITE  # the reclaim
+    # next cycle: zone still shows 22 (echo lag) — no second write
+    d3 = decide(inputs(now=after + timedelta(minutes=5), memory=d2.memory, zone=ZoneState(22.0, 19.0)))
+    assert d3.action is Action.NONE and "unchanged" in d3.reason
+
+
+def test_zero_minute_hold_reclaims_immediately():
+    p = PolicyParams(manual_hold_minutes=0)
+    d = decide(inputs(params=p, memory=held(19.5), zone=ZoneState(22.0, 19.0)))
+    assert d.state is State.ACTIVE and d.action is Action.WRITE
+
+
 def test_expired_write_value_is_not_treated_as_ours():
     """Someone selecting the same number as an old, expired OT write is a manual change."""
     m = held(19.5, minutes_ago=90)  # override expired (60 min)
