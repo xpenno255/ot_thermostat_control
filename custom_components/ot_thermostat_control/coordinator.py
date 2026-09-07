@@ -838,14 +838,13 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         d.fallbacks = fallbacks
 
         memory = decision.memory
-        restored = self._restore_complete and (hub_data is None or hub_data.restore_complete)
+        # Zone actions need this room restored AND a present, restored hub: before hub
+        # registration (or during its reload) global-enable state is unknown, and a
+        # missing hub must not silently count as "enabled".
+        restored = self._restore_complete and hub_data is not None and hub_data.restore_complete
         if not restored and decision.action is not Action.NONE:
-            # Entities (mode select, enable switches, the hub's global enable) restore
-            # their previous state during platform setup, after this first refresh;
-            # acting before that could write from a room or hub the owner had switched
-            # off or back to shadow.
             memory = inputs.memory
-            d.reason = decision.reason + " (deferred: restore pending)"
+            d.reason = decision.reason + " (deferred: awaiting hub/restored state)"
         elif not await self._perform(decision):
             # The service call did not go through: keep the previous write AND manual
             # bookkeeping (only window tracking moves on) so the next cycle re-evaluates

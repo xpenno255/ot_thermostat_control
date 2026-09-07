@@ -7,6 +7,7 @@ supplied by the caller.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import Enum
@@ -216,9 +217,22 @@ def _write_needed(target: float, m: OverrideMemory, inp: PolicyInputs) -> bool:
     return _override_expiring(m, inp.now, p)
 
 
+def _bound(target: float | None, p: PolicyParams) -> float | None:
+    """The target as it would go on the wire: None for non-finite, else clamped."""
+    if target is None or not math.isfinite(target):
+        return None
+    return min(max(target, p.zone_setpoint_min), p.zone_setpoint_max)
+
+
+def _hold_standing(m: OverrideMemory, now: datetime) -> bool:
+    return m.manual_detected_at is not None and m.manual_release_at is not None and now < m.manual_release_at
+
+
 def _write(state: State, target: float, reason: str, inp: PolicyInputs, m: OverrideMemory) -> Decision:
     p = inp.params
-    bounded = min(max(target, p.zone_setpoint_min), p.zone_setpoint_max)
+    bounded = _bound(target, p)
+    if bounded is None:
+        return Decision(state, Action.NONE, None, reason + f"; non-finite target {target} discarded", m)
     if bounded != target:
         reason += f"; clamped {target} to zone bounds -> {bounded}"
         target = bounded
@@ -240,31 +254,51 @@ def decide(inp: PolicyInputs) -> Decision:
         return _release_or_none(State.OUTSIDE_WINDOW, "outside operating window", inp)
 
     # 2. Zone deliberately off (parked at the evohome floor): hands off, and never "manual".
-    if inp.zone.current_setpoint is not None and inp.zone.current_setpoint <= p.zone_off_setpoint + p.step / 2:
-        return _release_or_none(State.OFF, f"zone setpoint {inp.zone.current_setpoint} at off floor; leaving alone", inp)
+    # The exception is the echo of our own in-force floor-clamped write, which must flow
+    # through the normal write path or the clamp floor becomes a write/release loop.
+    tol = p.step / 2 + 1e-6
+    cur = inp.zone.current_setpoint
+    if cur is not None and cur <= p.zone_off_setpoint + p.step / 2:
+        echo_of_ours = (
+            inp.memory.last_written_setpoint is not None
+            and _holding_override(inp.memory, inp.now, p)
+            and abs(cur - inp.memory.last_written_setpoint) < tol
+        )
+        if not echo_of_ours:
+            return _release_or_none(State.OFF, f"zone setpoint {cur} at off floor; leaving alone", inp)
 
     # 3. Manual override detection and hold. The hold deadline is frozen when the manual
     # change is first seen (min of the hold duration and the then-upcoming switchpoint),
     # so a schedule source that later advertises the following switchpoint cannot extend
-    # it. A hand moving the dial to a different value restarts the hold.
+    # it. A hand moving the dial to a different value restarts the hold. While a hold
+    # stands it outranks every later branch (window, door, pre-heat, writes): the only
+    # exits are expiry or the user putting the zone back on its schedule.
     m = _update_window_memory(inp)
-    if _manual_override(inp):
-        tol = p.step / 2 + 1e-6
-        readjusted = m.manual_setpoint is not None and inp.zone.current_setpoint is not None \
-            and abs(inp.zone.current_setpoint - m.manual_setpoint) >= tol
+    z = inp.zone
+    hold = _hold_standing(m, inp.now)
+    back_at_schedule = (
+        z.current_setpoint is not None and z.schedule_setpoint is not None
+        and abs(z.current_setpoint - z.schedule_setpoint) < tol
+    )
+    if hold and back_at_schedule:
+        m = replace(m, manual_detected_at=None, manual_release_at=None, manual_setpoint=None)
+    elif hold or _manual_override(inp):
+        readjusted = m.manual_setpoint is not None and z.current_setpoint is not None \
+            and abs(z.current_setpoint - m.manual_setpoint) >= tol
         if m.manual_detected_at is None or readjusted:
             since = inp.now
             release_at = since + timedelta(minutes=p.manual_hold_minutes)
-            if inp.zone.next_switchpoint_at is not None and inp.now < inp.zone.next_switchpoint_at < release_at:
-                release_at = inp.zone.next_switchpoint_at
+            if z.next_switchpoint_at is not None and inp.now < z.next_switchpoint_at < release_at:
+                release_at = z.next_switchpoint_at
         else:
             since = m.manual_detected_at
             release_at = m.manual_release_at or (since + timedelta(minutes=p.manual_hold_minutes))
         if inp.now < release_at:
+            held_value = z.current_setpoint if z.current_setpoint is not None else m.manual_setpoint
             m2 = replace(m, manual_detected_at=since, manual_release_at=release_at,
-                         manual_setpoint=inp.zone.current_setpoint)
+                         manual_setpoint=held_value)
             return Decision(State.MANUAL, Action.NONE, None,
-                            f"zone setpoint {inp.zone.current_setpoint} set by hand; holding", m2)
+                            f"zone setpoint {held_value} set by hand; holding", m2)
         # hold expired: fall through and resume, forgetting the manual mark and our stale write
         m = OverrideMemory(window_open_since=m.window_open_since, window_closed_at=m.window_closed_at)
     elif m.manual_detected_at is not None:
@@ -275,13 +309,14 @@ def decide(inp: PolicyInputs) -> Decision:
         target = p.window_setpoint
         state, reason = State.WINDOW_OPEN, ("window open" if inp.any_window_open else "window recently closed")
         if inp.shadow_mode:
-            return Decision(State.SHADOW, Action.NONE, None, reason + " (shadow)", m, would_write=target)
+            return Decision(State.SHADOW, Action.NONE, None, reason + " (shadow)", m, would_write=_bound(target, p))
         return _write(state, target, reason, inp, m)
 
     if inp.any_adjacent_door_open and inp.zone.schedule_setpoint is not None:
         target = inp.zone.schedule_setpoint
         if inp.shadow_mode:
-            return Decision(State.SHADOW, Action.NONE, None, "adjacent door open (shadow)", m, would_write=target)
+            return Decision(State.SHADOW, Action.NONE, None, "adjacent door open (shadow)", m,
+                            would_write=_bound(target, p))
         return _write(State.DOOR_OPEN, target, "adjacent door open; plain schedule target", inp, m)
 
     # 5. Nothing to correct with.
@@ -304,5 +339,6 @@ def decide(inp: PolicyInputs) -> Decision:
     # 7. Normal operation.
     target = inp.computed_setpoint
     if inp.shadow_mode:
-        return Decision(State.SHADOW, Action.NONE, None, "shadow mode", m, would_write=target)
+        # would_write previews exactly what ACTIVE would transmit (bounded the same way).
+        return Decision(State.SHADOW, Action.NONE, None, "shadow mode", m, would_write=_bound(target, p))
     return _write(State.ACTIVE, target, "model setpoint", inp, m)

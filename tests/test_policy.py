@@ -285,6 +285,52 @@ def test_dial_returned_to_our_old_value_during_hold_stays_manual():
     assert d2.memory.manual_detected_at == T0 + timedelta(minutes=10)  # fresh hold
 
 
+def test_standing_hold_outranks_preheat_release():
+    """User at 20.5 during a hold, next switchpoint also 20.5 soon: still MANUAL, no release."""
+    m = held(20.5, minutes_ago=20)
+    d = decide(inputs(memory=m, zone=ZoneState(22.0, 19.0)))
+    assert d.state is State.MANUAL
+    z = ZoneState(20.5, 19.0, next_switchpoint_at=T0 + timedelta(minutes=40), next_switchpoint_setpoint=20.5)
+    d2 = decide(inputs(now=T0 + timedelta(minutes=10), memory=d.memory, zone=z))
+    assert d2.state is State.MANUAL and d2.action is Action.NONE
+
+
+def test_standing_hold_ends_when_zone_back_at_schedule():
+    d = decide(inputs(zone=ZoneState(22.0, 19.0)))
+    assert d.state is State.MANUAL
+    d2 = decide(inputs(now=T0 + timedelta(minutes=10), memory=d.memory, zone=ZoneState(19.0, 19.0)))
+    assert d2.state is State.ACTIVE and d2.memory.manual_detected_at is None
+
+
+def test_floor_clamped_write_echo_is_not_user_off():
+    """Computed 4 -> write 5; the echo of our own 5 must not release/loop."""
+    d = decide(inputs(computed_setpoint=4.0, zone=ZoneState(6.0, 6.0)))
+    assert d.action is Action.WRITE and d.setpoint == 5.0
+    d2 = decide(inputs(now=T0 + timedelta(minutes=5), memory=d.memory,
+                       computed_setpoint=4.0, zone=ZoneState(5.0, 6.0)))
+    assert d2.action is Action.NONE and d2.state is State.ACTIVE
+    # but a 5.0 we did NOT write is still the owner's off
+    d3 = decide(inputs(computed_setpoint=4.0, zone=ZoneState(5.0, 6.0)))
+    assert d3.state is State.OFF
+
+
+def test_non_finite_targets_are_never_written():
+    inf = float("inf")
+    d = decide(inputs(computed_setpoint=inf))
+    assert d.action is Action.NONE and "non-finite" in d.reason
+    # door branch with an infinite schedule target
+    d2 = decide(inputs(computed_setpoint=None, any_adjacent_door_open=True, zone=ZoneState(None, inf)))
+    assert d2.action is not Action.WRITE
+    # shadow preview matches: nothing to preview
+    d3 = decide(inputs(shadow_mode=True, computed_setpoint=inf))
+    assert d3.would_write is None
+
+
+def test_shadow_would_write_is_bounded_like_active():
+    d = decide(inputs(shadow_mode=True, computed_setpoint=31.0))
+    assert d.would_write == 30.0
+
+
 def test_expired_write_value_is_not_treated_as_ours():
     """Someone selecting the same number as an old, expired OT write is a manual change."""
     m = held(19.5, minutes_ago=90)  # override expired (60 min)
