@@ -264,6 +264,27 @@ def test_manual_readjustment_restarts_the_hold():
     assert d3.state is State.MANUAL
 
 
+def test_written_target_is_clamped_and_remembered_as_transmitted():
+    """Memory must hold the value that went on the wire, or the echo looks manual."""
+    d = decide(inputs(computed_setpoint=31.0))
+    assert d.action is Action.WRITE and d.setpoint == 30.0
+    assert d.memory.last_written_setpoint == 30.0 and "clamped" in d.reason
+    # zone echoes 30: recognised as ours, not manual
+    d2 = decide(inputs(now=T0 + timedelta(minutes=5), memory=d.memory,
+                       computed_setpoint=31.0, zone=ZoneState(30.0, 19.0)))
+    assert d2.state is State.ACTIVE and d2.action is Action.NONE
+
+
+def test_dial_returned_to_our_old_value_during_hold_stays_manual():
+    """User sets 22, then changes their mind back to our unexpired 20.5: still their call."""
+    m = held(20.5, minutes_ago=20)
+    d = decide(inputs(memory=m, zone=ZoneState(22.0, 19.0)))
+    assert d.state is State.MANUAL
+    d2 = decide(inputs(now=T0 + timedelta(minutes=10), memory=d.memory, zone=ZoneState(20.5, 19.0)))
+    assert d2.state is State.MANUAL  # readjustment, not our echo
+    assert d2.memory.manual_detected_at == T0 + timedelta(minutes=10)  # fresh hold
+
+
 def test_expired_write_value_is_not_treated_as_ours():
     """Someone selecting the same number as an old, expired OT write is a manual change."""
     m = held(19.5, minutes_ago=90)  # override expired (60 min)

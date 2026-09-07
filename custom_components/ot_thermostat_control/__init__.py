@@ -39,6 +39,9 @@ async def _async_setup_hub_entry(hass: HomeAssistant, entry: ConfigEntry) -> boo
     hass.data[DOMAIN]["hub"] = {"config": {**entry.data, **entry.options}, "data": hub_data}
     async_remove_stale_entities(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, HUB_PLATFORMS)
+    # The global-enable switch restores its previous state during platform setup above;
+    # rooms hold off zone actions until this is true.
+    hub_data.restore_complete = True
     entry.async_on_unload(entry.add_update_listener(_async_hub_options_updated))
     return True
 

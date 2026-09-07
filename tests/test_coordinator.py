@@ -171,6 +171,42 @@ async def test_disabling_room_leaves_user_override_alone(hass: HomeAssistant):
     assert len([c for c in calls if "mode" in c]) == 1  # no follow_schedule sent
 
 
+async def test_failed_write_after_manual_hold_expiry_retries_not_reholds(hass: HomeAssistant):
+    """Reclaim write fails -> memory keeps the expired hold, so the next cycle retries."""
+    hub, room, calls = await _setup(hass, MODE_ACTIVE)
+    coordinator = room.runtime_data
+    _set_states(hass, zone_sp=22.0)  # manual change
+    await coordinator.async_refresh()
+    assert coordinator.data.state == "manual"
+
+    async def broken(call):
+        raise RuntimeError("rf down")
+
+    hass.services.async_register("ramses_cc", "set_zone_mode", broken)
+    # jump past the hold deadline
+    coordinator._store.set("manual_release_at", (dt_util.utcnow() - timedelta(minutes=1)).isoformat())
+    coordinator._store.set("manual_detected_at", (dt_util.utcnow() - timedelta(hours=3)).isoformat())
+    await coordinator.async_refresh()
+    assert "failed" in coordinator.data.reason
+    # the expired hold is still on record: next cycle must attempt the write again,
+    # not report a fresh manual hold
+    await coordinator.async_refresh()
+    assert coordinator.data.state != "manual"
+    assert "failed" in coordinator.data.reason
+
+
+async def test_unavailable_cloud_entity_does_not_supply_schedule(hass: HomeAssistant):
+    hub, room, calls = await _setup(hass, MODE_SHADOW)
+    coordinator = room.runtime_data
+    assert coordinator.data.schedule_setpoint == 19.0
+    st = hass.states.get("climate.living_room")
+    hass.states.async_set("climate.living_room", "unavailable", dict(st.attributes))
+    await coordinator.async_refresh()
+    # stale cloud attributes rejected; no RF cache in this fixture -> no schedule at all
+    assert coordinator.data.schedule_setpoint is None
+    assert coordinator.data.state == "no_data"
+
+
 async def test_missing_room_file_is_reported_not_fatal(hass: HomeAssistant):
     calls: list = []
     hass.services.async_register("ramses_cc", "set_zone_mode", lambda call: calls.append(call))

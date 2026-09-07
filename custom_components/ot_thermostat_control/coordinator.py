@@ -8,6 +8,7 @@ publishes a snapshot for the entities.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -391,6 +392,10 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         sched: float | None = None
         nxt_at: datetime | None = None
         nxt_sp: float | None = None
+        # An unavailable cloud entity retains its last attributes; stale switchpoints
+        # must not outrank a live RF fallback.
+        if st is not None and st.state in UNAVAILABLE:
+            st = None
         if st is not None:
             status = st.attributes.get("status")
             sp = (status.get("setpoints") if isinstance(status, dict) else None) or {}
@@ -612,6 +617,8 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             window_close_delay_minutes=int(self._config.get(CONF_WINDOW_DELAY, DEFAULT_WINDOW_DELAY)),
             preheat_release_minutes=int(self._config.get(CONF_PREHEAT_RELEASE, DEFAULT_PREHEAT_RELEASE)),
             window_setpoint=float(self._config.get(CONF_WINDOW_SETPOINT, DEFAULT_WINDOW_SETPOINT)),
+            zone_setpoint_min=ZONE_SETPOINT_MIN,
+            zone_setpoint_max=ZONE_SETPOINT_MAX,
         )
 
     def _memory(self) -> OverrideMemory:
@@ -679,9 +686,12 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             _LOGGER.warning("OT %s: no primary climate entity; cannot %s", self.room_name, decision.action.value)
             return False
         if decision.action is Action.WRITE:
-            setpoint = min(max(float(decision.setpoint), ZONE_SETPOINT_MIN), ZONE_SETPOINT_MAX)
-            if setpoint != decision.setpoint:
-                _LOGGER.warning("OT %s: clamped write %s to zone bounds -> %s", self.room_name, decision.setpoint, setpoint)
+            # Bounds are applied in the policy's _write so memory matches the wire; this
+            # is a last-resort refusal for anything non-finite or out of range anyway.
+            setpoint = float(decision.setpoint)
+            if not math.isfinite(setpoint) or not (ZONE_SETPOINT_MIN <= setpoint <= ZONE_SETPOINT_MAX):
+                _LOGGER.error("OT %s: refusing to write invalid setpoint %s", self.room_name, decision.setpoint)
+                return False
             data = {
                 "entity_id": primary,
                 "mode": "temporary_override",
@@ -781,6 +791,9 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             d.offset_asymmetry = round(correction.offset_asymmetry, 3)
             d.offset_final = round(correction.offset_final, 3)
             d.air_setpoint = correction.air_setpoint
+            if d.air_setpoint is not None and not math.isfinite(d.air_setpoint):
+                fallbacks.append("model produced a non-finite setpoint; discarded")
+                d.air_setpoint = None
             d.capped = correction.capped
             d.solar_k = round(correction.solar_k, 3)
             d.sum_l = round(correction.sum_l, 4)
@@ -825,18 +838,22 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         d.fallbacks = fallbacks
 
         memory = decision.memory
-        if not self._restore_complete and decision.action is not Action.NONE:
-            # Entities (mode select, enable switches) restore their previous state during
-            # platform setup, after this first refresh; acting before that could write
-            # from a room the owner had switched off or back to shadow.
+        restored = self._restore_complete and (hub_data is None or hub_data.restore_complete)
+        if not restored and decision.action is not Action.NONE:
+            # Entities (mode select, enable switches, the hub's global enable) restore
+            # their previous state during platform setup, after this first refresh;
+            # acting before that could write from a room or hub the owner had switched
+            # off or back to shadow.
             memory = inputs.memory
             d.reason = decision.reason + " (deferred: restore pending)"
         elif not await self._perform(decision):
-            # The service call did not go through: keep the previous write memory so the
-            # next cycle retries instead of believing the zone was updated.
-            memory = replace(memory,
-                             last_written_setpoint=inputs.memory.last_written_setpoint,
-                             last_written_at=inputs.memory.last_written_at)
+            # The service call did not go through: keep the previous write AND manual
+            # bookkeeping (only window tracking moves on) so the next cycle re-evaluates
+            # from the same state and retries, instead of believing the zone was updated
+            # or starting a fresh manual hold after a failed reclaim.
+            memory = replace(inputs.memory,
+                             window_open_since=memory.window_open_since,
+                             window_closed_at=memory.window_closed_at)
             d.reason = decision.reason + " (service call failed; will retry)"
         self._save_memory(memory)
         d.last_written_setpoint = memory.last_written_setpoint

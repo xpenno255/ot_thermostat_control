@@ -21,6 +21,7 @@ class OTHubData:
     """Runtime data for the global hub entry."""
 
     global_enabled: bool = True
+    restore_complete: bool = False  # set by setup once the global-enable switch has restored
     store: OTStore | None = None
     # Flow temperature: last value seen while DHW was not active.
     flow_temp_used: float | None = None

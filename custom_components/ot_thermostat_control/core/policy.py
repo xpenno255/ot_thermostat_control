@@ -42,6 +42,10 @@ class PolicyParams:
     window_setpoint: float = 10.0
     switchpoint_grace_minutes: int = 30  # tolerance for schedule-source lag either side of a switchpoint
     zone_off_setpoint: float = 5.0  # a zone parked at or below this is off (evohome floor), not manual
+    # Final absolute bounds on any written target. Applied inside _write so the value
+    # remembered as ours is exactly the value transmitted (ownership depends on it).
+    zone_setpoint_min: float = 5.0
+    zone_setpoint_max: float = 30.0
 
 
 @dataclass(frozen=True)
@@ -161,10 +165,18 @@ def _manual_override(inp: PolicyInputs) -> bool:
     if z.current_setpoint is None or z.schedule_setpoint is None:
         return False  # without a schedule reference we cannot tell manual from scheduled
     tol = p.step / 2 + 1e-6
+    # While a manual hold stands, the dial belongs to the user: even a value equal to
+    # our own earlier write is their (re)adjustment, not our command echoing back.
+    hold_standing = (
+        m.manual_detected_at is not None
+        and m.manual_release_at is not None
+        and inp.now < m.manual_release_at
+    )
     # Only an override still in force counts as ours; an expired write's value could
     # equally be a fresh manual selection of the same number.
     matches_ours = (
-        m.last_written_setpoint is not None
+        not hold_standing
+        and m.last_written_setpoint is not None
         and _holding_override(m, inp.now, p)
         and abs(z.current_setpoint - m.last_written_setpoint) < tol
     )
@@ -205,6 +217,11 @@ def _write_needed(target: float, m: OverrideMemory, inp: PolicyInputs) -> bool:
 
 
 def _write(state: State, target: float, reason: str, inp: PolicyInputs, m: OverrideMemory) -> Decision:
+    p = inp.params
+    bounded = min(max(target, p.zone_setpoint_min), p.zone_setpoint_max)
+    if bounded != target:
+        reason += f"; clamped {target} to zone bounds -> {bounded}"
+        target = bounded
     if not _write_needed(target, m, inp):
         return Decision(state, Action.NONE, None, reason + "; unchanged, override still valid", m)
     new_m = replace(m, last_written_setpoint=target, last_written_at=inp.now)
