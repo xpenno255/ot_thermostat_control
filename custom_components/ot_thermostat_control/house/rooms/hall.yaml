@@ -110,16 +110,18 @@ heating:
     height_m: null
     notes: 'No zone sensor bound (schema sensor: null), so the HR92 on the radiator is the zone sensor and reads
       high while heating.'
-  preferred_air_temperature_entity: sensor.aqara_fp300_hall_temperature
+  preferred_air_temperature_entity: sensor.hall_sonoff_hall_temperature_sensor_temperature
   notes: Actuator and sensor bindings read from the ramses_cc schema in HA on 2026-09-04.
   emitter_notes: Plan numbers refer to floor_plans/House_*_Rads.png (2026-09-04). Lengths scaled from plan, ±0.15
     m. Which HR92 device sits on which radiator is not yet known where a zone has two.
   installed_output_dt50_w: 2136
 sensors:
   temperature:
+  - sensor.hall_sonoff_hall_temperature_sensor_temperature
   - sensor.aqara_fp300_hall_temperature
   - sensor.aqara_hall_motion_sensor_temperature
   humidity:
+  - sensor.hall_sonoff_hall_temperature_sensor_humidity
   - sensor.aqara_fp300_hall_humidity
   - sensor.aqara_hall_motion_sensor_humidity
   occupancy:
@@ -136,13 +138,14 @@ sensors:
   - sensor.hall_operative_temperature
   - sensor.hall_thermal_comfort_pmv
   positions:
+    sensor.hall_sonoff_hall_temperature_sensor_temperature: Sonoff SNZB (ZHA) 'Sonoff Hall Temperature Sensor', E wall
+      (office party wall) just S of the office door, 1.3 m, installed 2026-09-13.
     sensor.aqara_fp300_hall_temperature: 'Plan mark A: N wall W end, corner, just above door height (~2.1 m), above
       but not directly over radiator 5.'
     sensor.aqara_hall_motion_sensor_temperature: Spare FP300, in a drawer, not installed.
     eplite (living room door): just inside the living room by the hall door, not a hall sensor
-  air_temperature_decision: 'Use the installed FP300 for now with a height/radiator bias correction; at 2.1 m in
-    a stairwell hall it will read warm. Recommended: fit the spare FP300 at 1.2-1.5 m on the wall opposite radiator
-    5 (E wall by the toilet door, or W wall) and switch to it.'
+  air_temperature_decision: 'Sonoff sensor on the E wall at 1.3 m since 2026-09-13. FP300 at 2.1 m kept for presence and as
+    fallback only (reads warm in the stairwell plume).'
   position_notes: Positions from the marked plans floor_plans/House_*_Rads.png (2026-09-04); heights not yet recorded.
   planned_air_temperature_sensor:
     action: add
@@ -150,9 +153,9 @@ sensors:
     height_m: 1.3
     avoid: radiator 5 (keep >1.5 m), front-door blast, the kitchen opening
     why: internal wall, mid-height, out of the stairwell plume; the FP300 stays for presence only
-    status: not installed
-    entity: null
-    installed_on: null
+    status: installed
+    entity: sensor.hall_sonoff_hall_temperature_sensor_temperature
+    installed_on: '2026-09-13'
 usage:
   occupied_pattern: null
   typical_activity: light_activity

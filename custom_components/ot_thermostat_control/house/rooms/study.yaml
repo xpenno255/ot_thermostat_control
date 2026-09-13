@@ -174,15 +174,17 @@ heating:
     height_m: null
     notes: 'No zone sensor bound (schema sensor: null), so the HR92 on the radiator is the zone sensor and reads
       high while heating.'
-  preferred_air_temperature_entity: sensor.kitchen_h5075_temperature
+  preferred_air_temperature_entity: sensor.study_study_h5075_temperature
   notes: Actuator and sensor bindings read from the ramses_cc schema in HA on 2026-09-04.
   emitter_notes: Plan numbers refer to floor_plans/House_*_Rads.png (2026-09-04). Lengths scaled from plan, ±0.15
     m. Which HR92 device sits on which radiator is not yet known where a zone has two.
   installed_output_dt50_w: 2492
 sensors:
   temperature:
+  - sensor.study_study_h5075_temperature
   - sensor.everything_presence_one_d4e148_temperature
   humidity:
+  - sensor.study_study_h5075_humidity
   - sensor.everything_presence_one_d4e148_humidity
   occupancy:
   - binary_sensor.study_occupancy
@@ -198,11 +200,10 @@ sensors:
     sensor.everything_presence_one_d4e148_temperature: 'Plan mark E: E wall at the S end, inside the bay area by
       the E window. Self-heating suspected; number.everything_presence_one_d4e148_temperature_offset exists for
       calibration.'
-    sensor.kitchen_h5075_temperature: Govee H5075, device renamed 'Study H5075' and moved to the study area 2026-09-04.
-      Entity ids keep the kitchen name for now (see notes).
-  air_temperature_decision: 'Study H5075 (entity ids still sensor.kitchen_h5075_*: renaming would break automations
-    ''Virtual MRT Kitchen'' and ''Kitchen - EN 16798-1 Smart Setpoint'', the template ''Kitchen Temperature Drift''
-    and the Indoor Thermal Comfort ''Kitchen'' room). Final position: W wall, 1.2 m.'
+    sensor.study_study_h5075_temperature: Govee H5075 'Study H5075' (was sensor.kitchen_h5075_*, entity ids renamed
+      2026-09-13). Installed on the W wall at 1.2 m, S of the office door, 2026-09-13.
+  air_temperature_decision: 'Study H5075 (sensor.study_study_h5075_temperature), W wall at 1.2 m since 2026-09-13. EP One
+    stays as fallback only.'
   position_notes: Positions from the marked plans floor_plans/House_*_Rads.png (2026-09-04); heights not yet recorded.
   planned_air_temperature_sensor:
     action: add (owner's H5075)
@@ -210,11 +211,11 @@ sensors:
     height_m: 1.2
     avoid: radiator 6, the bay and E window, PCs and monitors, the sofa backs
     why: internal wall, desk-seated height, no sun
-    status: not installed
-    entity: null
-    installed_on: null
+    status: installed
+    entity: sensor.study_study_h5075_temperature
+    installed_on: '2026-09-13'
   calibration_2026-09-04:
-    method: Govee H5075 (sensor.kitchen_h5075_temperature) placed beside the EP One for 15 min, heating off, 16:22
+    method: Govee H5075 (then sensor.kitchen_h5075_temperature, now sensor.study_study_h5075_temperature) placed beside the EP One for 15 min, heating off, 16:22
     govee_c: 22.7
     ep_one_c: 24.45
     ep_one_bias_k: 1.75

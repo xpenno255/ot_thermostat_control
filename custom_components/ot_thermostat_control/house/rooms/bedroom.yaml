@@ -122,19 +122,21 @@ heating:
     height_m: null
     notes: 'No zone sensor bound (schema sensor: null), so the HR92 on the radiator is the zone sensor and reads
       high while heating.'
-  preferred_air_temperature_entity: sensor.bedroom_temp_humidity_temperature
+  preferred_air_temperature_entity: sensor.sonoff_bedroom_temperature_sensor_temperature
   notes: Actuator and sensor bindings read from the ramses_cc schema in HA on 2026-09-04.
   emitter_notes: Plan numbers refer to floor_plans/House_*_Rads.png (2026-09-04). Lengths scaled from plan, ±0.15
     m. Which HR92 device sits on which radiator is not yet known where a zone has two.
   installed_output_dt50_w: 2592
 sensors:
   temperature:
+  - sensor.sonoff_bedroom_temperature_sensor_temperature
   - sensor.bedroom_temp_hum_temperature
   - sensor.bedroom_temp_hum_temperature_2
   - sensor.bedroom_motion_sensor_1_temperature
   - sensor.bedroom_motion_sensor_2_temperature
   - sensor.bedroom_echo_temperature
   humidity:
+  - sensor.sonoff_bedroom_temperature_sensor_humidity
   - sensor.bedroom_temp_hum_humidity
   - sensor.bedroom_temp_hum_humidity_2
   occupancy:
@@ -150,24 +152,26 @@ sensors:
   - sensor.climate_setpoint_bedroom
   - sensor.everything_presence_lite_ccbb44_co2
   positions:
+    sensor.sonoff_bedroom_temperature_sensor_temperature: Sonoff SNZB (ZHA) 'Sonoff Bedroom Temperature Sensor', E wall
+      (Max Room / landing party wall) mid-way, 1.0 m, installed 2026-09-13.
     sensor.bedroom_temp_humidity_temperature: 'Plan mark G: H5100 ''Bedroom Temp Humidity'', S wall E end, about
       0.3 m E of radiator 8. Radiator-biased while heating.'
     sensor.bedroom_temp_hum_temperature: 'Second H5100 ''Bedroom Temp Hum'': flat batteries, not a stale device
       (owner 2026-09-04). Position not marked.'
     eplite ccbb44 (plan mark E): W wall S end. CO2 and presence only; EP Lite has no temperature sensor.
     sensor.bedroom_motion_sensor_1_temperature / _2: two Hue SML003 with temperature, positions not marked
-  air_temperature_decision: Use 'Bedroom Temp Humidity' (G) as the canonical H5100 for now. It sits beside radiator
-    8, so move it to the W wall at ~1.2 m or use the second H5100 if that one is better placed.
+  air_temperature_decision: Sonoff sensor on the E wall at 1.0 m since 2026-09-13. H5100 'Bedroom Temp Humidity' (G) stays
+    beside radiator 8 as fallback only.
   position_notes: Positions from the marked plans floor_plans/House_*_Rads.png (2026-09-04); heights not yet recorded.
   planned_air_temperature_sensor:
-    action: move existing H5100 'Bedroom Temp Humidity'
+    action: added a new Sonoff ZHA sensor instead of moving the H5100
     wall: east (Max Room / landing party wall), about mid-way along
     height_m: 1.0
     avoid: radiator 8, both windows, the door swing
     why: internal wall, bed height for sleeping comfort, >2 m from the radiator
-    status: not installed
-    entity: null
-    installed_on: null
+    status: installed
+    entity: sensor.sonoff_bedroom_temperature_sensor_temperature
+    installed_on: '2026-09-13'
 usage:
   occupied_pattern: null
   typical_activity: sleeping
