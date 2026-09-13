@@ -1,5 +1,11 @@
 # OT Thermostat Control v2 — design note
 
+> Historical design. The September 12 physics revision is documented in
+> [physics-model.md](physics-model.md), which supersedes the surface equations,
+> numerical examples, wind/solar rules and adaptive-comfort claims below.
+> The current thermostat resolution is 0.1°C. Capacity and warm-up safeguards
+> described here remain future work, not implemented guarantees.
+
 Status: 2026-09-04. Built and tested on the `v2` branch: `core/model.py`, `core/geometry.py`, `core/policy.py`, `hub.py`, `coordinator.py` and all entity platforms (52 tests, integration tests under HA 2026.9). v2.0.1 deployed to the live instance 2026-09-04 via HACS; all nine rooms migrated and running in shadow mode. Known follow-up: the 60 s startup retry did not fire on first deployment (rooms recovered on the next 5-minute tick).
 
 ## 1. What v2 claims

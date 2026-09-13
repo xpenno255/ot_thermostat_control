@@ -12,9 +12,6 @@ from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 
 from .const import (
-    CONF_ADAPTIVE_ENABLED,
-    CONF_ADAPTIVE_REF,
-    CONF_ADAPTIVE_SLOPE,
     CONF_ASYMMETRY_ENABLED,
     CONF_BACKUP_CLIMATE,
     CONF_CAP_DOWN,
@@ -50,9 +47,6 @@ from .const import (
     CONF_WINDOW_DELAY,
     CONF_WINDOW_OPEN_DELAY,
     CONF_WINDOW_SETPOINT,
-    DEFAULT_ADAPTIVE_ENABLED,
-    DEFAULT_ADAPTIVE_REF,
-    DEFAULT_ADAPTIVE_SLOPE,
     DEFAULT_CAP,
     DEFAULT_GROUND_TEMP,
     DEFAULT_HOUSE_DIR,
@@ -168,9 +162,6 @@ def hub_schema(d: dict[str, Any] | None = None) -> vol.Schema:
                     {
                         vol.Required(CONF_CAP_UP, default=d.get(CONF_CAP_UP, DEFAULT_CAP)): _num(0, 3, 0.5, "°C"),
                         vol.Required(CONF_CAP_DOWN, default=d.get(CONF_CAP_DOWN, DEFAULT_CAP)): _num(0, 3, 0.5, "°C"),
-                        vol.Required(CONF_ADAPTIVE_ENABLED, default=d.get(CONF_ADAPTIVE_ENABLED, DEFAULT_ADAPTIVE_ENABLED)): selector.BooleanSelector(),
-                        vol.Required(CONF_ADAPTIVE_SLOPE, default=d.get(CONF_ADAPTIVE_SLOPE, DEFAULT_ADAPTIVE_SLOPE)): _num(0, 0.2, 0.01),
-                        vol.Required(CONF_ADAPTIVE_REF, default=d.get(CONF_ADAPTIVE_REF, DEFAULT_ADAPTIVE_REF)): _num(0, 20, 0.5, "°C"),
                     }
                 )
             ),

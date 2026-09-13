@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Any
 
 import yaml
@@ -20,7 +21,26 @@ FACE_ALIASES = {
     "south": "S", "south_west": "SW", "west": "W", "north_west": "NW",
 }
 DEFAULT_BEARINGS = {"N": 0, "NE": 45, "E": 90, "SE": 135, "S": 180, "SW": 225, "W": 270, "NW": 315}
+FACE_NAMES = {v: k for k, v in FACE_ALIASES.items()}
 GLAZED_TYPES = {"window", "glazed_door", "rooflight", "fixed_glazed_return"}
+
+
+def _face(value: str) -> str:
+    """Use the same key for bearings and opening subtraction."""
+    return FACE_ALIASES.get(str(value).lower(), str(value).upper())
+
+
+def _adjacencies(value: Any, warnings: list[str], ctx: str) -> dict[str, float]:
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return {str(room): float(fraction) for room, fraction in value.items()}
+    # Historic surveys use e.g. 'bedroom, landing' or 'hall (side lobby)'.
+    rooms = list(dict.fromkeys(re.sub(r"\s*\([^)]*\)", "", room).strip()
+                               for room in str(value).split(",") if room.strip()))
+    if len(rooms) > 1:
+        warnings.append(f"{ctx}: equal adjacent area shares assumed; survey fractions when known")
+    return {room: 1 / len(rooms) for room in rooms}
 
 
 @dataclass(frozen=True)
@@ -124,7 +144,7 @@ def load_room(path: str | Path, house: House) -> RoomGeometry:
     surfaces: list[Surface] = []
     for o in openings:
         oid = str(o.get("id", "opening"))
-        face = str(o.get("face", "")).lower()
+        face = _face(o.get("face", ""))
         area = o.get("area_m2")
         if area is None and o.get("width_m") and o.get("height_m"):
             area = float(o["width_m"]) * float(o["height_m"])
@@ -135,7 +155,11 @@ def load_room(path: str | Path, house: House) -> RoomGeometry:
         if u is None:
             warnings.append(f"{rid}/{oid}: unknown construction '{o.get('construction')}', skipped")
             continue
-        covering_closed = bool(o.get("covering_closed_at_night")) and o.get("covering") not in (None, "none")
+        # A night-time habit says nothing about daytime shading. An explicit
+        # shade_factor is a fixed surveyed obstruction/transmission multiplier.
+        tilt = float(o.get("tilt_deg", 0.0 if face in ("ROOF", "CEILING") or o.get("type") == "rooflight" else 90.0))
+        if tilt != 0 and house.bearing(face) is None:
+            warnings.append(f"{rid}/{oid}: tilted opening bearing unknown; direct solar ignored")
         surfaces.append(
             Surface(
                 name=oid,
@@ -143,16 +167,17 @@ def load_room(path: str | Path, house: House) -> RoomGeometry:
                 u_value=u,
                 boundary=Boundary.OUTSIDE,
                 bearing_deg=house.bearing(face),
+                tilt_deg=tilt,
                 glazed=str(o.get("type")) in GLAZED_TYPES,
                 g_value=float(o.get("g_value", 0.6)),
-                shade_factor=0.3 if covering_closed else 1.0,
+                shade_factor=float(o.get("shade_factor", 1.0)),
             )
         )
         opening_area_by_face[face] = opening_area_by_face.get(face, 0.0) + float(area)
 
     faces = ((data.get("boundaries") or {}).get("faces")) or []
     for i, f in enumerate(faces):
-        face = str(f.get("face", "")).lower()
+        face = _face(f.get("face", ""))
         ctx = f"{rid}/face[{i}]:{face}"
         b = _boundary(f.get("boundary"), warnings, ctx)
         if b is None:
@@ -166,24 +191,31 @@ def load_room(path: str | Path, house: House) -> RoomGeometry:
             warnings.append(f"{ctx}: openings exceed wall area, skipped")
             continue
         if b is Boundary.HEATED_ROOM:
-            u = 0.0
+            key = f.get("construction") or ("internal_floor" if face in ("FLOOR", "CEILING") else "internal_wall")
+            u = house.u_value(key)
+            if u is None:
+                if f.get("construction"):
+                    raise ValueError(f"{ctx}: unknown construction '{key}'")
+                u = 1.5  # conservative unsurveyed partition estimate, not an insulator
+                warnings.append(f"{ctx}: internal U-value assumed 1.5 W/m²K")
         else:
             u = house.u_value(f.get("construction"))
             if u is None:
                 warnings.append(f"{ctx}: unknown construction '{f.get('construction')}' for a cold-facing surface")
                 continue
-        tilt = 0.0 if face in ("floor", "ceiling", "roof") else 90.0
-        adjacent = f.get("adjacent")
-        adjacent_id = str(adjacent).split(",")[0].split(" ")[0] if adjacent else None
+        tilt = 0.0 if face in ("FLOOR", "CEILING", "ROOF") else 90.0
+        adjacent_fractions = _adjacencies(f.get("adjacent"), warnings, ctx)
+        adjacent_id = next(iter(adjacent_fractions)) if len(adjacent_fractions) == 1 else None
         surfaces.append(
             Surface(
-                name=f"{face}_{b.value}_{i}",
+                name=f"{FACE_NAMES.get(face, face.lower())}_{b.value}_{i}",
                 area_m2=net,
                 u_value=u,
                 boundary=b,
                 bearing_deg=None if tilt == 0.0 else house.bearing(face),
                 tilt_deg=tilt,
                 adjacent=adjacent_id,
+                adjacent_fractions=adjacent_fractions,
             )
         )
     for face, leftover in opening_area_by_face.items():
@@ -212,7 +244,7 @@ def load_room(path: str | Path, house: House) -> RoomGeometry:
     if floor_area is None:
         warnings.append(f"{rid}: floor_area_m2 missing")
     if not any(s.boundary is not Boundary.HEATED_ROOM for s in surfaces):
-        warnings.append(f"{rid}: no cold-facing surfaces; correction will be zero")
+        warnings.append(f"{rid}: no external boundaries; correction depends on neighbouring rooms")
 
     return RoomGeometry(
         room_id=rid,

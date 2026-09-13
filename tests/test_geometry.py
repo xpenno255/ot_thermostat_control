@@ -5,7 +5,7 @@ import pytest
 
 from conftest import FIXTURES
 from core.geometry import load_all_rooms, load_house, load_room
-from core.model import Boundary, Environment, ModelParams, required_air_temperature
+from core.model import Boundary, Environment, ModelParams, required_air_temperature, operative_temperature, steady_state_mrt
 
 HOUSE_DIR = Path(__file__).resolve().parents[1] / "custom_components" / "ot_thermostat_control" / "house"  # shipped survey
 
@@ -41,14 +41,15 @@ def test_living_room_surfaces():
     assert not [w for w in r.warnings if "skipped" in w], r.warnings
 
 
-def test_living_room_matches_design_note_example():
+def test_loaded_living_room_inverse_reproduces_target():
     h = load_house(FIXTURES / "house.yaml")
     r = load_room(FIXTURES / "rooms" / "living_room.yaml", h)
     env = Environment(t_out=0.0, sun_elevation_deg=-10.0, cloud_fraction=1.0)
     c = required_air_temperature(r.surfaces, env, 20.0, ModelParams(trust_k=1.0, step=0.01, cap_up=5))
-    # Surveyed glazing is smaller than the design-note sketch (6.2 vs 8.3 m² bay) but the bay roof
-    # is new, so the real room lands close to the sketch's 0.86.
-    assert 0.7 < c.offset_physical < 1.0
+    assert c.offset_physical > 0
+    mrt = steady_state_mrt(r.surfaces, env, c.t_air_required).mrt
+    assert operative_temperature(c.t_air_required, mrt) == pytest.approx(20.0, abs=1e-9)
+
 
 
 def test_utility_has_roof_and_garage_surfaces():
@@ -63,7 +64,9 @@ def test_utility_has_roof_and_garage_surfaces():
     env = Environment(t_out=0.0, sun_elevation_deg=-10.0, cloud_fraction=1.0)
     p = ModelParams(trust_k=1.0, step=0.01, cap_up=5)
     c = required_air_temperature(r.surfaces, env, 18.0, p)
-    assert 0.5 < c.offset_physical < 1.5
+    assert c.offset_physical > 0
+    mrt = steady_state_mrt(r.surfaces, env, c.t_air_required, p).mrt
+    assert operative_temperature(c.t_air_required, mrt) == pytest.approx(18.0, abs=1e-9)
     assert not [w for w in r.warnings if "skipped" in w], r.warnings
 
 
@@ -125,3 +128,50 @@ def test_shipped_house_loads_every_room_without_skips():
         skipped = [w for w in r.warnings if "skipped" in w or "unknown construction" in w]
         assert not skipped, (r.room_id, skipped)
         assert r.total_area_m2 > 0
+
+
+def test_loaded_partition_uses_construction_and_all_neighbours(tmp_path):
+    path = tmp_path / "room.yaml"
+    path.write_text("""
+room: {id: room}
+geometry: {floor_area_m2: 10}
+boundaries:
+  faces:
+    - face: east
+      boundary: heated_room
+      construction: wall_to_unheated
+      gross_area_m2: 10
+      adjacent: {kitchen: 0.25, hall: 0.75}
+""")
+    room = load_room(path, load_house(FIXTURES / "house.yaml"))
+    surface = room.surfaces[0]
+    assert surface.u_value == 1.5
+    assert surface.adjacent_fractions == {"kitchen": 0.25, "hall": 0.75}
+    warm = Environment(t_out=0, adjacent_temps={"kitchen": 20, "hall": 20})
+    cold_hall = Environment(t_out=0, adjacent_temps={"kitchen": 20, "hall": 10})
+    assert required_air_temperature(room.surfaces, warm, 20).offset_physical == pytest.approx(0)
+    assert required_air_temperature(room.surfaces, cold_hall, 20).offset_physical > 0
+
+
+def test_opening_orientation_shading_and_face_aliases(tmp_path):
+    path = tmp_path / "room.yaml"
+    path.write_text("""
+room: {id: room}
+geometry: {floor_area_m2: 10}
+boundaries:
+  faces:
+    - {face: south, boundary: outside, construction: external_wall_main, gross_area_m2: 10}
+    - {face: roof, boundary: roof, construction: roof_extension, gross_area_m2: 10}
+openings:
+  items:
+    - {id: window, type: window, face: S, area_m2: 2, construction: window_timber_dg,
+       covering: curtains, covering_closed_at_night: true}
+    - {id: skylight, type: rooflight, face: roof, area_m2: 1, construction: window_timber_dg}
+""")
+    room = load_room(path, load_house(FIXTURES / "house.yaml"))
+    surfaces = {s.name: s for s in room.surfaces}
+    assert surfaces["window"].shade_factor == 1  # night habit must not shade daytime
+    assert surfaces["skylight"].tilt_deg == 0
+    assert surfaces["south_outside_0"].area_m2 == 8
+    assert surfaces["roof_roof_1"].area_m2 == 9
+    assert room.total_area_m2 == 20

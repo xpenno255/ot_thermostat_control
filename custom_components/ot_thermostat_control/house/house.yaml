@@ -40,6 +40,14 @@ heating:
 # Named construction types. Rooms refer to these by key so U-values live in one place.
 # Replace `estimated` values after a thermal-camera survey on a cold night.
 constructions:
+  internal_wall:
+    description: Internal partition, construction not yet surveyed; provisional U including both surface films
+    u_value: 1.5
+    confidence: estimated
+  internal_floor:
+    description: Inter-storey floor, construction not yet surveyed; provisional U including both surface films
+    u_value: 1.5
+    confidence: estimated
   external_wall_main:
     description: 1920s brick cavity wall, narrow (~50 mm) cavity, unfilled, cavity open at the top into the loft
     u_value: 1.7

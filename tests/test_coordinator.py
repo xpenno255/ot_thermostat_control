@@ -32,6 +32,58 @@ from custom_components.ot_thermostat_control.const import (
 pytestmark = pytest.mark.asyncio
 
 
+async def test_existing_adaptive_configuration_cannot_lower_the_target(hass: HomeAssistant):
+    hub, room, _ = await _setup(hass, MODE_SHADOW)
+    info = hass.data[DOMAIN]["hub"]
+    info["config"].update(adaptive_enabled=True, adaptive_slope=0.2, adaptive_reference=20)
+    hub.runtime_data.running_mean = -5
+    hub.runtime_data.days_completed = 10
+    await room.runtime_data.async_refresh()
+    data = room.runtime_data.data
+    assert data.target_ot == data.schedule_setpoint == 19
+    assert data.adaptive_shift == 0
+    assert any("legacy adaptive setback ignored" in f for f in data.fallbacks)
+
+
+async def test_model_inputs_convert_units_and_discard_nonfinite_values(hass: HomeAssistant):
+    _, room, _ = await _setup(hass, MODE_SHADOW)
+    coordinator = room.runtime_data
+    hass.states.async_set("sensor.met_office_weoley_castle_temperature", "32", {"unit_of_measurement": "°F"})
+    hass.states.async_set("sensor.thm_22_066067_temperature", "68", {"unit_of_measurement": "°F"})
+    hass.states.async_set("sensor.test_solar", "0.1", {"unit_of_measurement": "kW/m²"})
+    hass.data[DOMAIN]["hub"]["config"]["irradiance_sensor"] = "sensor.test_solar"
+    await coordinator.async_refresh()
+    assert coordinator.data.outdoor_temp == 0
+    assert coordinator.data.air_temp == 20
+    assert coordinator.data.ghi_wm2 == 100
+    hass.states.async_set("sensor.test_solar", "nan", {"unit_of_measurement": "W/m²"})
+    await coordinator.async_refresh()
+    assert coordinator.data.ghi_wm2 is None
+    assert coordinator.data.solar_k == 0
+    assert any("solar correction withheld" in f for f in coordinator.data.fallbacks)
+    hass.states.async_set("sensor.thm_22_066067_temperature", "20", {"unit_of_measurement": "bogus"})
+    assert coordinator._temperature_state("sensor.thm_22_066067_temperature") is None
+    hass.states.async_set("sensor.test_solar", "100", {"unit_of_measurement": "W/m²"})
+    hass.states.async_set("sun.sun", "unavailable")
+    await coordinator.async_refresh()
+    assert coordinator.data.solar_k == 0
+    assert any("sun position unavailable" in f for f in coordinator.data.fallbacks)
+
+
+async def test_room_reads_all_adjacent_sensors_without_waiting_for_their_cycle(hass: HomeAssistant):
+    from types import SimpleNamespace
+
+    _, room, _ = await _setup(hass, MODE_SHADOW)
+    coordinator = room.runtime_data
+    baseline = coordinator.data.air_setpoint
+    # The living-room east partition references 'kitchen, hall'. The second
+    # neighbour must influence the target too, even before it has published data.
+    hass.data[DOMAIN]["rooms"]["hall"] = SimpleNamespace(
+        geometry=None, _air_temperature=lambda geometry, fallbacks: (10.0, "sensor.hall"), data=None)
+    await coordinator.async_refresh()
+    assert coordinator.data.air_setpoint > baseline
+
+
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
     yield
@@ -98,15 +150,16 @@ async def test_shadow_mode_computes_and_writes_nothing(hass: HomeAssistant):
     hub, room, calls = await _setup(hass, MODE_SHADOW)
     coordinator = room.runtime_data
     d = coordinator.data
-    assert coordinator.geometry is not None and not coordinator.geometry.warnings
+    assert coordinator.geometry is not None
+    assert all("assumed" in w for w in coordinator.geometry.warnings)
     assert d.state == "shadow"
     assert d.schedule_setpoint == 19.0
-    assert d.target_ot == pytest.approx(19.0)  # adaptive shift waits for 3 full days of running mean
+    assert d.target_ot == pytest.approx(19.0)  # schedule remains the desired comfort temperature
     assert d.adaptive_shift == 0.0
     assert d.air_temp == 19.0 and d.air_temp_source == "sensor.thm_22_066067_temperature"
     assert d.outdoor_temp == 0.0 and d.wind_ms == pytest.approx(3.0)
-    assert d.offset_physical is not None and 0.6 < d.offset_physical < 1.0
-    assert 19.4 <= d.air_setpoint <= 20.0 and round(d.air_setpoint * 10) == d.air_setpoint * 10  # 0.1 °C steps
+    assert d.offset_physical is not None and 0 < d.offset_physical < 3
+    assert 19.0 < d.air_setpoint <= 20.5 and round(d.air_setpoint * 10) == d.air_setpoint * 10  # 0.1 °C steps
     assert d.would_write == d.air_setpoint
     assert d.radiator_output_w is not None and d.radiator_output_w > 2000
     assert [c for c in calls if 'mode' in c] == []

@@ -29,7 +29,7 @@ ROOM_SENSORS: list[tuple[str, str, tuple, str | None, bool]] = [
     ("offset_final", "Offset", DELTA, "mdi:thermometer-plus", False),
     ("offset_physical", "Offset Physical", DELTA, "mdi:thermometer-plus", True),
     ("schedule_setpoint", "Schedule Setpoint", TEMP, None, True),
-    ("radiator_output_w", "Radiator Output", WATTS, "mdi:radiator", True),
+    ("radiator_output_w", "Radiator Output Estimate", WATTS, "mdi:radiator", True),
     ("flow_temp_used", "Flow Temperature Used", TEMP, None, True),
     ("outdoor_temp", "Outdoor Temperature Used", TEMP, None, True),
     ("solar_k", "Solar MRT Rise", DELTA, "mdi:white-balance-sunny", True),
@@ -107,7 +107,9 @@ class OTRoomSensor(OTRoomEntity, SensorEntity):
         if self._key == "outdoor_temp":
             return {"source": d.outdoor_source, "wind_ms": d.wind_ms, "ghi_wm2": d.ghi_wm2, "cloud_fraction": d.cloud_fraction}
         if self._key == "radiator_output_w":
-            return {"installed_output_dt50_w": d.installed_output_dt50_w, "glazed_area_m2": d.glazed_area_m2, "total_area_m2": d.total_area_m2}
+            return {"installed_output_dt50_w": d.installed_output_dt50_w, "glazed_area_m2": d.glazed_area_m2,
+                    "total_area_m2": d.total_area_m2, "assumed_water_drop_k": 10,
+                    "description": "Available capacity at assumed water temperatures; not measured delivered heat"}
         return None
 
 

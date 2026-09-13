@@ -16,14 +16,14 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     AFTERNOON_END,
     CONF_ADAPTIVE_ENABLED,
-    CONF_ADAPTIVE_REF,
-    CONF_ADAPTIVE_SLOPE,
     CONF_ASYMMETRY_ENABLED,
     CONF_BACKUP_CLIMATE,
     CONF_CAP_DOWN,
@@ -60,9 +60,6 @@ from .const import (
     CONF_WINDOW_DELAY,
     CONF_WINDOW_OPEN_DELAY,
     CONF_WINDOW_SETPOINT,
-    DEFAULT_ADAPTIVE_ENABLED,
-    DEFAULT_ADAPTIVE_REF,
-    DEFAULT_ADAPTIVE_SLOPE,
     DEFAULT_CAP,
     DEFAULT_GROUND_TEMP,
     DEFAULT_HOUSE_DIR,
@@ -102,7 +99,6 @@ from .core.model import (
     Correction,
     Environment,
     ModelParams,
-    adaptive_target_shift,
     operative_temperature,
     steady_state_mrt,
     radiator_output_w,
@@ -304,7 +300,8 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         if st is None or st.state in UNAVAILABLE:
             return None
         try:
-            return float(st.state)
+            value = float(st.state)
+            return value if math.isfinite(value) else None
         except (ValueError, TypeError):
             return None
 
@@ -315,7 +312,8 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             return None
         try:
             v = st.attributes.get(attr)
-            return None if v is None else float(v)
+            value = float(v) if v is not None else None
+            return value if value is not None and math.isfinite(value) else None
         except (ValueError, TypeError):
             return None
 
@@ -329,6 +327,26 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         try:
             return float(st.state) > 0.0
         except (TypeError, ValueError):
+            return None
+
+    def _temperature_state(self, entity_id: str | None) -> float | None:
+        value, state = self._float_state(entity_id), self._state(entity_id)
+        unit = state.attributes.get("unit_of_measurement", "°C") if state else "°C"
+        return self._celsius(value, unit)
+
+    def _temperature_attr(self, entity_id: str | None, attr: str) -> float | None:
+        value, state = self._float_attr(entity_id, attr), self._state(entity_id)
+        unit = state.attributes.get("temperature_unit", self.hass.config.units.temperature_unit) if state else "°C"
+        return self._celsius(value, unit)
+
+    @staticmethod
+    def _celsius(value: float | None, unit: str) -> float | None:
+        if value is None:
+            return None
+        try:
+            converted = TemperatureConverter.convert(value, unit, "°C")
+            return converted if math.isfinite(converted) else None
+        except (ValueError, TypeError, HomeAssistantError):
             return None
 
     def _hub(self) -> OTHubData | None:
@@ -387,7 +405,7 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         """Scheduled target from the evohome cloud entity, else the ramses schedule attribute."""
         primary = self._config.get(CONF_PRIMARY_CLIMATE)
         backup = self._config.get(CONF_BACKUP_CLIMATE)
-        current = self._float_attr(primary, "temperature")
+        current = self._temperature_attr(primary, "temperature")
         st = self._state(backup)
         sched: float | None = None
         nxt_at: datetime | None = None
@@ -502,17 +520,17 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
 
     def _air_temperature(self, geometry: RoomGeometry | None, fallbacks: list[str]) -> tuple[float | None, str]:
         preferred = geometry.preferred_air_temperature_entity if geometry else None
-        val = self._float_state(preferred)
+        val = self._temperature_state(preferred)
         if val is not None:
             return val, preferred or ""
         if preferred:
             fallbacks.append(f"preferred air sensor {preferred} unavailable")
         primary = self._config.get(CONF_PRIMARY_CLIMATE)
-        val = self._float_attr(primary, "current_temperature")
+        val = self._temperature_attr(primary, "current_temperature")
         if val is not None:
             return val, f"{primary}.current_temperature"
         backup = self._config.get(CONF_BACKUP_CLIMATE)
-        val = self._float_attr(backup, "current_temperature")
+        val = self._temperature_attr(backup, "current_temperature")
         if val is not None:
             fallbacks.append("air temperature from backup climate entity")
             return val, f"{backup}.current_temperature"
@@ -522,10 +540,10 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         hub = self._hub_config()
         weather = hub.get(CONF_WEATHER_ENTITY) or self._config.get(CONF_WEATHER_ENTITY)
         # Outdoor temperature
-        t_out = self._float_state(hub.get(CONF_OUTDOOR_TEMP_SENSOR))
+        t_out = self._temperature_state(hub.get(CONF_OUTDOOR_TEMP_SENSOR))
         src = str(hub.get(CONF_OUTDOOR_TEMP_SENSOR) or "")
         if t_out is None:
-            t_out = self._float_attr(weather, "temperature")
+            t_out = self._temperature_attr(weather, "temperature")
             src = f"{weather}.temperature"
             if t_out is not None and hub.get(CONF_OUTDOOR_TEMP_SENSOR):
                 fallbacks.append("outdoor temperature from weather entity")
@@ -560,22 +578,40 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             wind_ms = wind
         # Irradiance / cloud
         ghi = self._float_state(hub.get(CONF_IRRADIANCE_SENSOR))
+        irradiance_state = self._state(hub.get(CONF_IRRADIANCE_SENSOR))
+        irradiance_unit = irradiance_state.attributes.get("unit_of_measurement", "W/m²") if irradiance_state else "W/m²"
+        if ghi is not None:
+            if irradiance_unit in ("kW/m²", "kW/m2"):
+                ghi *= 1000
+            elif irradiance_unit not in ("W/m²", "W/m2"):
+                fallbacks.append(f"unsupported irradiance unit {irradiance_unit}; solar correction withheld")
+                ghi = None
         cloud = self._float_attr(weather, "cloud_coverage")
         cloud_fraction = None if cloud is None else max(0.0, min(1.0, cloud / 100.0))
         if ghi is None and hub.get(CONF_IRRADIANCE_SENSOR):
-            fallbacks.append("irradiance sensor unavailable, using cloud estimate")
+            fallbacks.append("irradiance sensor unavailable; solar correction withheld")
         if ghi is None and cloud_fraction is None:
             fallbacks.append("cloud cover unavailable, assuming 50%")
         # Sun
         elev = self._float_attr("sun.sun", "elevation")
         az = self._float_attr("sun.sun", "azimuth")
+        if ghi is not None and (elev is None or az is None):
+            fallbacks.append("sun position unavailable; solar correction withheld")
+            ghi = None
         # Adjacent rooms: other coordinators' air temperatures
         adjacent: dict[str, float] = {}
         rooms = self.hass.data.get(DOMAIN, {}).get("rooms", {})
         if geometry:
             for s in geometry.surfaces:
-                if s.adjacent and s.adjacent in rooms and rooms[s.adjacent].data and rooms[s.adjacent].data.air_temp is not None:
-                    adjacent[s.adjacent] = rooms[s.adjacent].data.air_temp
+                neighbours = s.adjacent_fractions or ({s.adjacent: 1.0} if s.adjacent else {})
+                for room_id in neighbours:
+                    neighbour = rooms.get(room_id)
+                    # Read the sensor now: coordinator snapshots can retain stale data
+                    # after an update failure and depend on room polling order.
+                    if neighbour is not None:
+                        value, _ = neighbour._air_temperature(neighbour.geometry, [])
+                        if value is not None:
+                            adjacent[room_id] = value
         env = Environment(
             t_out=t_out,
             wind_ms=wind_ms,
@@ -583,6 +619,7 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
             cloud_fraction=cloud_fraction,
             sun_elevation_deg=elev if elev is not None else -10.0,
             sun_azimuth_deg=az if az is not None else 180.0,
+            day_of_year=dt_util.now().timetuple().tm_yday,
             t_ground=float(hub.get(CONF_GROUND_TEMP, DEFAULT_GROUND_TEMP)),
             adjacent_temps=adjacent,
         )
@@ -590,7 +627,7 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
 
     def _flow_temperature(self) -> float | None:
         hub_data, hub = self._hub(), self._hub_config()
-        value = self._float_state(hub.get(CONF_FLOW_TEMP_ENTITY))
+        value = self._temperature_state(hub.get(CONF_FLOW_TEMP_ENTITY))
         dhw = self._is_on(hub.get(CONF_DHW_ACTIVE_ENTITY))
         manual = float(hub.get(CONF_MANUAL_FLOW_TEMP, DEFAULT_MANUAL_FLOW_TEMP))
         if hub_data is None:
@@ -768,14 +805,10 @@ class OTCoordinator(DataUpdateCoordinator[OTCoordinatorData]):
         hub_cfg = self._hub_config()
         if zone.schedule_setpoint is not None:
             target = zone.schedule_setpoint + d.occupancy_offset
-            if bool(hub_cfg.get(CONF_ADAPTIVE_ENABLED, DEFAULT_ADAPTIVE_ENABLED)) and hub_data is not None \
-                    and hub_data.running_mean_ready and d.running_mean_outdoor is not None:
-                d.adaptive_shift = round(adaptive_target_shift(
-                    d.running_mean_outdoor,
-                    float(hub_cfg.get(CONF_ADAPTIVE_REF, DEFAULT_ADAPTIVE_REF)),
-                    float(hub_cfg.get(CONF_ADAPTIVE_SLOPE, DEFAULT_ADAPTIVE_SLOPE)),
-                ), 3)
-                target += d.adaptive_shift
+            # Existing entries may still store adaptive_enabled=True. Retire the
+            # subtraction in the control path, not merely in defaults for new rooms.
+            if hub_cfg.get(CONF_ADAPTIVE_ENABLED):
+                fallbacks.append("legacy adaptive setback ignored; scheduled comfort target preserved")
             d.target_ot = round(target, 2)
 
         correction: Correction | None = None

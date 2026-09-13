@@ -3,11 +3,16 @@
     "step": {
       "user": {
         "title": "OT Thermostat Control",
-        "menu_options": {"hub": "Global settings (one per house)", "room": "Add a room"}
+        "menu_options": {
+          "hub": "Global settings (one per house)",
+          "room": "Add a room"
+        }
       },
       "hub": {
         "title": "Global settings",
-        "data": {"weather_entity": "Weather entity (fallback for outdoor temperature, wind and cloud)"},
+        "data": {
+          "weather_entity": "Weather entity (fallback for outdoor temperature, wind and cloud)"
+        },
         "sections": {
           "sources_section": {
             "name": "Sources",
@@ -24,15 +29,14 @@
             "name": "Comfort",
             "data": {
               "cap_up": "Default maximum upward correction",
-              "cap_down": "Default maximum downward correction",
-              "adaptive_enabled": "Adaptive comfort (lower targets in cold spells)",
-              "adaptive_slope": "Adaptive slope (°C per °C of running mean below reference)",
-              "adaptive_reference": "Adaptive reference running-mean temperature"
+              "cap_down": "Default maximum downward correction"
             }
           },
           "advanced_section": {
             "name": "Advanced",
-            "data": {"house_dir": "House survey directory (leave empty for the bundled survey)"}
+            "data": {
+              "house_dir": "House survey directory (leave empty for the bundled survey)"
+            }
           }
         }
       },
@@ -52,7 +56,7 @@
               "trust_k": "Trust factor (fraction of the physical offset applied)",
               "cap_up": "Maximum upward correction (overrides hub)",
               "cap_down": "Maximum downward correction (overrides hub)",
-              "asymmetry_enabled": "Radiant asymmetry term (large glazing)"
+              "asymmetry_enabled": "Extra comfort bias for glazing (empirical)"
             }
           },
           "policy_section": {
@@ -69,7 +73,11 @@
           },
           "time_window_section": {
             "name": "Operating window",
-            "data": {"time_window_enabled": "Only operate within a daily window", "time_window_start": "Start", "time_window_end": "End"}
+            "data": {
+              "time_window_enabled": "Only operate within a daily window",
+              "time_window_start": "Start",
+              "time_window_end": "End"
+            }
           },
           "occupancy_section": {
             "name": "Occupancy",
@@ -87,7 +95,9 @@
         }
       }
     },
-    "abort": {"hub_already_configured": "Global settings already exist. Edit them from the integration's options."}
+    "abort": {
+      "hub_already_configured": "Global settings already exist. Edit them from the integration's options."
+    }
   },
   "options": {
     "step": {
@@ -102,17 +112,75 @@
           "mode": "Mode"
         },
         "sections": {
-          "sources_section": {"name": "Sources", "data": {"outdoor_temp_sensor": "Outdoor temperature sensor (dry bulb)", "irradiance_sensor": "Solar irradiance sensor (W/m²)", "flow_temp_entity": "Boiler flow temperature entity", "dhw_active_entity": "Hot water active (binary sensor, or a demand sensor > 0)", "manual_flow_temp": "Manual flow temperature (used if no entity)", "ground_temp": "Ground temperature under the floor"}},
-          "comfort_section": {"name": "Comfort", "data": {"cap_up": "Maximum upward correction", "cap_down": "Maximum downward correction", "adaptive_enabled": "Adaptive comfort (lower targets in cold spells)", "adaptive_slope": "Adaptive slope", "adaptive_reference": "Adaptive reference running-mean temperature", "trust_k": "Trust factor", "asymmetry_enabled": "Radiant asymmetry term (large glazing)"}},
-          "advanced_section": {"name": "Advanced", "data": {"house_dir": "House survey directory (leave empty for the bundled survey)"}},
-          "policy_section": {"name": "Write policy", "data": {"override_duration": "Override duration", "manual_hold_minutes": "Hold after a manual dial change", "preheat_release_minutes": "Release to schedule before an upward switchpoint", "run_interval": "Evaluation interval", "window_setpoint": "Setpoint while a window is open", "window_open_delay": "Window must be open for", "window_delay": "Keep setback after closing for"}},
-          "time_window_section": {"name": "Operating window", "data": {"time_window_enabled": "Only operate within a daily window", "time_window_start": "Start", "time_window_end": "End"}},
-          "occupancy_section": {"name": "Occupancy", "data": {"occupancy_sensor": "Occupancy sensor", "unoccupied_duration": "Unoccupied for at least", "weekday_morning_offset": "Weekday morning offset", "weekday_afternoon_offset": "Weekday afternoon offset", "weekday_evening_offset": "Weekday evening offset", "weekend_morning_offset": "Weekend morning offset", "weekend_afternoon_offset": "Weekend afternoon offset", "weekend_evening_offset": "Weekend evening offset"}}
+          "sources_section": {
+            "name": "Sources",
+            "data": {
+              "outdoor_temp_sensor": "Outdoor temperature sensor (dry bulb)",
+              "irradiance_sensor": "Solar irradiance sensor (W/m²)",
+              "flow_temp_entity": "Boiler flow temperature entity",
+              "dhw_active_entity": "Hot water active (binary sensor, or a demand sensor > 0)",
+              "manual_flow_temp": "Manual flow temperature (used if no entity)",
+              "ground_temp": "Ground temperature under the floor"
+            }
+          },
+          "comfort_section": {
+            "name": "Comfort",
+            "data": {
+              "cap_up": "Maximum upward correction",
+              "cap_down": "Maximum downward correction",
+              "trust_k": "Trust factor",
+              "asymmetry_enabled": "Extra comfort bias for glazing (empirical)"
+            }
+          },
+          "advanced_section": {
+            "name": "Advanced",
+            "data": {
+              "house_dir": "House survey directory (leave empty for the bundled survey)"
+            }
+          },
+          "policy_section": {
+            "name": "Write policy",
+            "data": {
+              "override_duration": "Override duration",
+              "manual_hold_minutes": "Hold after a manual dial change",
+              "preheat_release_minutes": "Release to schedule before an upward switchpoint",
+              "run_interval": "Evaluation interval",
+              "window_setpoint": "Setpoint while a window is open",
+              "window_open_delay": "Window must be open for",
+              "window_delay": "Keep setback after closing for"
+            }
+          },
+          "time_window_section": {
+            "name": "Operating window",
+            "data": {
+              "time_window_enabled": "Only operate within a daily window",
+              "time_window_start": "Start",
+              "time_window_end": "End"
+            }
+          },
+          "occupancy_section": {
+            "name": "Occupancy",
+            "data": {
+              "occupancy_sensor": "Occupancy sensor",
+              "unoccupied_duration": "Unoccupied for at least",
+              "weekday_morning_offset": "Weekday morning offset",
+              "weekday_afternoon_offset": "Weekday afternoon offset",
+              "weekday_evening_offset": "Weekday evening offset",
+              "weekend_morning_offset": "Weekend morning offset",
+              "weekend_afternoon_offset": "Weekend afternoon offset",
+              "weekend_evening_offset": "Weekend evening offset"
+            }
+          }
         }
       }
     }
   },
   "selector": {
-    "mode": {"options": {"shadow": "Shadow (compute only, write nothing)", "active": "Active (write to the zone)"}}
+    "mode": {
+      "options": {
+        "shadow": "Shadow (compute only, write nothing)",
+        "active": "Active (write to the zone)"
+      }
+    }
   }
 }

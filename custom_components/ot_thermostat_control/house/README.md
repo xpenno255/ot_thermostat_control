@@ -58,9 +58,22 @@ that needs room geometry, construction, sensors or usage (lighting, energy, pres
 | Ground floor, suspended timber | 0.8 |
 | Internal wall to unheated space (garage, porch) | 1.5 |
 
-Inside surface temperature for a surface facing outdoors is roughly
-`T_air − (U / 7.7) × (T_air − T_out)`. Mean radiant temperature at the centre of the room is
-approximately the area-weighted mean of the inside surface temperatures.
+U-values include a reference inside film resistance of 1/7.7 m²K/W; outside faces also
+include an outside film of 0.04 m²K/W. The model removes these films as appropriate
+and solves convection, conduction and internal radiant exchange together. Its area-weighted,
+linearised MRT is a room proxy, not a measurement at the occupied seat.
+
+Heated-room boundaries use their named construction; absent names default to `internal_wall`
+or `internal_floor` (both provisionally 1.5 W/m²K in this survey). Override these after surveying
+partitions. `adjacent: {kitchen: 0.7, hall: 0.3}` specifies area shares which must sum to one.
+Legacy comma-separated neighbours use equal shares with an explicit warning; unknown heated
+neighbours fall back to this room's air temperature for their share.
+
+Openings support `tilt_deg` (0 horizontal, 90 vertical) and `shade_factor` (0–1 fixed transmission
+multiplier for obstruction/covering). Rooflights default to horizontal; specify tilt and compass
+face for pitched rooflights. `covering_closed_at_night` does not imply daytime shading. Actual
+blind state is not connected. Solar control requires supplied irradiance in W/m² or kW/m² and
+sun position; a cloud-cover guess alone receives no heating credit.
 
 ## Files
 
