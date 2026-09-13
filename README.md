@@ -1,3 +1,5 @@
+<img src="custom_components/ot_thermostat_control/brand/icon.png" width="96" height="96" alt="OT Thermostat Control icon">
+
 # OT Thermostat Control
 
 Home Assistant integration that corrects evohome zone setpoints for **operative temperature**: on a cold
